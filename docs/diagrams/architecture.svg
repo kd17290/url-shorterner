@@ -1,0 +1,168 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="980" viewBox="0 0 1600 980" role="img" aria-labelledby="title desc">
+  <title id="title">URL Shortener Distributed Architecture</title>
+  <desc id="desc">Load balancer, app cluster, data stores, streaming ingestion, analytics, and observability components.</desc>
+
+  <defs>
+    <style><![CDATA[
+      .bg { fill: #0f172a; }
+      .title { fill: #e2e8f0; font: 700 28px 'Segoe UI', Arial, sans-serif; }
+      .subtitle { fill: #94a3b8; font: 500 14px 'Segoe UI', Arial, sans-serif; }
+      .group { fill: #111827; stroke: #334155; stroke-width: 2; rx: 14; }
+      .group-label { fill: #93c5fd; font: 700 15px 'Segoe UI', Arial, sans-serif; letter-spacing: 0.6px; }
+      .node { fill: #1f2937; stroke: #64748b; stroke-width: 1.5; rx: 10; }
+      .node-data { fill: #172554; stroke: #60a5fa; stroke-width: 1.5; rx: 10; }
+      .node-stream { fill: #3f1d2e; stroke: #f472b6; stroke-width: 1.5; rx: 10; }
+      .node-obs { fill: #1f2937; stroke: #22d3ee; stroke-width: 1.5; rx: 10; }
+      .txt { fill: #e5e7eb; font: 600 13px 'Segoe UI', Arial, sans-serif; }
+      .tiny { fill: #9ca3af; font: 500 11px 'Segoe UI', Arial, sans-serif; }
+      .arrow { stroke: #94a3b8; stroke-width: 2; fill: none; marker-end: url(#arrowHead); }
+      .arrow-metrics { stroke: #22d3ee; stroke-width: 2; stroke-dasharray: 7 6; fill: none; marker-end: url(#arrowHeadCyan); }
+      .arrow-stream { stroke: #f472b6; stroke-width: 2; fill: none; marker-end: url(#arrowHeadPink); }
+      .legend-text { fill: #cbd5e1; font: 500 12px 'Segoe UI', Arial, sans-serif; }
+    ]]></style>
+    <marker id="arrowHead" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#94a3b8" />
+    </marker>
+    <marker id="arrowHeadCyan" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#22d3ee" />
+    </marker>
+    <marker id="arrowHeadPink" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#f472b6" />
+    </marker>
+  </defs>
+
+  <rect class="bg" x="0" y="0" width="1600" height="980" />
+  <text class="title" x="36" y="52">URL Shortener - Distributed Architecture</text>
+  <text class="subtitle" x="36" y="78">Load-balanced API, async click ingestion, OLTP + OLAP split, and full observability</text>
+
+  <rect class="group" x="30" y="110" width="1540" height="120" />
+  <text class="group-label" x="48" y="138">EDGE</text>
+
+  <rect class="node" x="85" y="150" width="220" height="56" />
+  <text class="txt" x="126" y="184">Clients / Browsers</text>
+
+  <rect class="node" x="420" y="150" width="220" height="56" />
+  <text class="txt" x="471" y="184">Nginx Load Balancer</text>
+
+  <rect class="group" x="30" y="260" width="770" height="330" />
+  <text class="group-label" x="48" y="288">APPLICATION + OLTP</text>
+
+  <rect class="node" x="90" y="310" width="180" height="54" />
+  <text class="txt" x="148" y="343">app1 (FastAPI)</text>
+  <rect class="node" x="300" y="310" width="180" height="54" />
+  <text class="txt" x="358" y="343">app2 (FastAPI)</text>
+  <rect class="node" x="510" y="310" width="180" height="54" />
+  <text class="txt" x="568" y="343">app3 (FastAPI)</text>
+
+  <rect class="node" x="90" y="390" width="220" height="54" />
+  <text class="txt" x="140" y="423">keygen service</text>
+  <rect class="node" x="350" y="390" width="220" height="54" />
+  <text class="txt" x="407" y="423">cache-warmer</text>
+
+  <rect class="node-data" x="90" y="470" width="200" height="56" />
+  <text class="txt" x="145" y="503">Redis primary</text>
+  <rect class="node-data" x="320" y="470" width="200" height="56" />
+  <text class="txt" x="374" y="503">Redis replica</text>
+  <rect class="node-data" x="550" y="470" width="200" height="56" />
+  <text class="txt" x="607" y="503">PostgreSQL</text>
+
+  <rect class="node-data" x="90" y="530" width="200" height="46" />
+  <text class="tiny" x="126" y="558">keygen-redis-primary</text>
+  <rect class="node-data" x="320" y="530" width="200" height="46" />
+  <text class="tiny" x="350" y="558">keygen-redis-secondary</text>
+
+  <rect class="group" x="830" y="260" width="740" height="330" />
+  <text class="group-label" x="850" y="288">STREAMING + ANALYTICS</text>
+
+  <rect class="node-stream" x="880" y="320" width="200" height="62" />
+  <text class="txt" x="938" y="356">Kafka / Redpanda</text>
+
+  <rect class="node-stream" x="1120" y="300" width="180" height="52" />
+  <text class="txt" x="1165" y="332">ingestion-1</text>
+  <rect class="node-stream" x="1320" y="300" width="180" height="52" />
+  <text class="txt" x="1365" y="332">ingestion-2</text>
+  <rect class="node-stream" x="1220" y="370" width="180" height="52" />
+  <text class="txt" x="1265" y="402">ingestion-3</text>
+
+  <rect class="node-data" x="1020" y="470" width="220" height="58" />
+  <text class="txt" x="1083" y="504">ClickHouse</text>
+  <rect class="node" x="1270" y="470" width="220" height="58" />
+  <text class="txt" x="1318" y="504">ClickHouse SQL UI</text>
+
+  <rect class="group" x="30" y="620" width="1540" height="300" />
+  <text class="group-label" x="48" y="648">OBSERVABILITY + LOAD TEST</text>
+
+  <rect class="node-obs" x="90" y="680" width="230" height="60" />
+  <text class="txt" x="144" y="716">Prometheus</text>
+  <rect class="node-obs" x="360" y="680" width="230" height="60" />
+  <text class="txt" x="438" y="716">Grafana</text>
+  <rect class="node-obs" x="630" y="680" width="230" height="60" />
+  <text class="txt" x="715" y="716">Dozzle</text>
+  <rect class="node-obs" x="900" y="680" width="280" height="60" />
+  <text class="txt" x="964" y="716">Locust UI + generator</text>
+
+  <rect class="node-obs" x="90" y="770" width="500" height="96" />
+  <text class="txt" x="112" y="804">Architecture Flow Board (Grafana)</text>
+  <text class="tiny" x="112" y="830">Configurable windows: 10s / 30s / 1m / 5m / 10m</text>
+  <text class="tiny" x="112" y="852">Shows edge rates: Client->LB->Apps->Redis/Postgres/Kafka->Ingestion->ClickHouse</text>
+
+  <line class="arrow" x1="305" y1="178" x2="420" y2="178" />
+  <line class="arrow" x1="640" y1="178" x2="180" y2="310" />
+  <line class="arrow" x1="640" y1="178" x2="390" y2="310" />
+  <line class="arrow" x1="640" y1="178" x2="600" y2="310" />
+
+  <line class="arrow" x1="180" y1="364" x2="190" y2="470" />
+  <line class="arrow" x1="390" y1="364" x2="190" y2="470" />
+  <line class="arrow" x1="600" y1="364" x2="190" y2="470" />
+
+  <line class="arrow" x1="180" y1="364" x2="650" y2="470" />
+  <line class="arrow" x1="390" y1="364" x2="650" y2="470" />
+  <line class="arrow" x1="600" y1="364" x2="650" y2="470" />
+
+  <line class="arrow" x1="200" y1="444" x2="190" y2="530" />
+  <line class="arrow" x1="200" y1="444" x2="420" y2="530" />
+  <line class="arrow" x1="460" y1="444" x2="190" y2="470" />
+  <line class="arrow" x1="460" y1="444" x2="650" y2="470" />
+  <line class="arrow" x1="190" y1="498" x2="320" y2="498" />
+
+  <line class="arrow-stream" x1="180" y1="364" x2="980" y2="320" />
+  <line class="arrow-stream" x1="390" y1="364" x2="980" y2="320" />
+  <line class="arrow-stream" x1="600" y1="364" x2="980" y2="320" />
+
+  <line class="arrow-stream" x1="1080" y1="351" x2="1120" y2="326" />
+  <line class="arrow-stream" x1="1080" y1="351" x2="1320" y2="326" />
+  <line class="arrow-stream" x1="1080" y1="351" x2="1220" y2="396" />
+
+  <line class="arrow" x1="1210" y1="352" x2="650" y2="498" />
+  <line class="arrow" x1="1410" y1="352" x2="650" y2="498" />
+  <line class="arrow" x1="1310" y1="422" x2="650" y2="498" />
+
+  <line class="arrow" x1="1210" y1="352" x2="1020" y2="499" />
+  <line class="arrow" x1="1410" y1="352" x2="1020" y2="499" />
+  <line class="arrow" x1="1310" y1="422" x2="1020" y2="499" />
+
+  <line class="arrow" x1="1240" y1="499" x2="1270" y2="499" />
+
+  <line class="arrow" x1="1040" y1="740" x2="530" y2="178" />
+
+  <line class="arrow-metrics" x1="180" y1="364" x2="200" y2="680" />
+  <line class="arrow-metrics" x1="390" y1="364" x2="220" y2="680" />
+  <line class="arrow-metrics" x1="600" y1="364" x2="240" y2="680" />
+  <line class="arrow-metrics" x1="1210" y1="352" x2="260" y2="680" />
+  <line class="arrow-metrics" x1="1410" y1="352" x2="280" y2="680" />
+  <line class="arrow-metrics" x1="1310" y1="422" x2="300" y2="680" />
+  <line class="arrow-metrics" x1="1130" y1="528" x2="320" y2="680" />
+
+  <line class="arrow" x1="320" y1="710" x2="360" y2="710" />
+  <line class="arrow" x1="1040" y1="740" x2="1040" y2="680" />
+
+  <text class="legend-text" x="1210" y="700">Legend:</text>
+  <line class="arrow" x1="1210" y1="724" x2="1270" y2="724" />
+  <text class="legend-text" x="1280" y="729">data / request flow</text>
+  <line class="arrow-stream" x1="1210" y1="748" x2="1270" y2="748" />
+  <text class="legend-text" x="1280" y="753">stream/event flow</text>
+  <line class="arrow-metrics" x1="1210" y1="772" x2="1270" y2="772" />
+  <text class="legend-text" x="1280" y="777">metrics scrape flow</text>
+
+  <text class="tiny" x="36" y="954">Generated for docs: this static SVG mirrors docs/architecture.md and Grafana architecture-flow board.</text>
+</svg>

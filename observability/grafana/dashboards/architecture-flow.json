@@ -1,0 +1,166 @@
+{
+  "id": null,
+  "title": "Architecture Flow Board",
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "5s",
+  "templating": {
+    "list": [
+      {
+        "name": "rate_window",
+        "type": "custom",
+        "label": "Average Window",
+        "query": "10s,30s,1m,5m,10m",
+        "current": {
+          "text": "1m",
+          "value": "1m"
+        },
+        "includeAll": false,
+        "multi": false
+      }
+    ]
+  },
+  "panels": [
+    {
+      "type": "stat",
+      "title": "Client -> Load Balancer req/s",
+      "gridPos": {"h": 5, "w": 8, "x": 0, "y": 0},
+      "targets": [
+        {
+          "expr": "sum(rate(http_requests_total{job=\"app_nodes\"}[$rate_window]))"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "LB -> app1 req/s",
+      "gridPos": {"h": 5, "w": 5, "x": 8, "y": 0},
+      "targets": [
+        {
+          "expr": "sum(rate(http_requests_total{job=\"app_nodes\",instance=\"app1:8000\"}[$rate_window]))"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "LB -> app2 req/s",
+      "gridPos": {"h": 5, "w": 5, "x": 13, "y": 0},
+      "targets": [
+        {
+          "expr": "sum(rate(http_requests_total{job=\"app_nodes\",instance=\"app2:8000\"}[$rate_window]))"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "LB -> app3 req/s",
+      "gridPos": {"h": 5, "w": 6, "x": 18, "y": 0},
+      "targets": [
+        {
+          "expr": "sum(rate(http_requests_total{job=\"app_nodes\",instance=\"app3:8000\"}[$rate_window]))"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "App -> Redis ops/s",
+      "gridPos": {"h": 5, "w": 6, "x": 0, "y": 5},
+      "targets": [
+        {
+          "expr": "sum(rate(app_edge_redis_ops_total[$rate_window]))"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "App -> Postgres reads/s",
+      "gridPos": {"h": 5, "w": 6, "x": 6, "y": 5},
+      "targets": [
+        {
+          "expr": "sum(rate(app_edge_db_reads_total[$rate_window]))"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "App -> Postgres writes/s",
+      "gridPos": {"h": 5, "w": 6, "x": 12, "y": 5},
+      "targets": [
+        {
+          "expr": "sum(rate(app_edge_db_writes_total[$rate_window]))"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "App -> Kafka events/s",
+      "gridPos": {"h": 5, "w": 6, "x": 18, "y": 5},
+      "targets": [
+        {
+          "expr": "sum(rate(app_edge_kafka_publish_total[$rate_window]))"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Kafka -> Ingestion events/s",
+      "gridPos": {"h": 5, "w": 8, "x": 0, "y": 10},
+      "targets": [
+        {
+          "expr": "sum(rate(ingestion_kafka_events_total[$rate_window]))"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Ingestion -> Redis aggregation deltas/s",
+      "gridPos": {"h": 5, "w": 8, "x": 8, "y": 10},
+      "targets": [
+        {
+          "expr": "sum(rate(ingestion_redis_buffer_total[$rate_window]))"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Ingestion -> Postgres updates/s",
+      "gridPos": {"h": 5, "w": 8, "x": 16, "y": 10},
+      "targets": [
+        {
+          "expr": "sum(rate(ingestion_db_updates_total[$rate_window]))"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Ingestion -> ClickHouse rows/s",
+      "gridPos": {"h": 5, "w": 12, "x": 0, "y": 15},
+      "targets": [
+        {
+          "expr": "sum(rate(ingestion_clickhouse_rows_total[$rate_window]))"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "App -> Redis Stream fallback/s",
+      "gridPos": {"h": 5, "w": 6, "x": 12, "y": 15},
+      "targets": [
+        {
+          "expr": "sum(rate(app_edge_stream_fallback_total[$rate_window]))"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "ClickHouse exporter up",
+      "gridPos": {"h": 5, "w": 6, "x": 18, "y": 15},
+      "targets": [
+        {
+          "expr": "max(up{job=\"clickhouse_exporter\"})"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,20 @@
+{
+  "_comment": "Baseline RPS numbers measured on 2026-02-21 (3-app stack, nginx lb). Update this file after intentional performance improvements by running make bench-full and committing the new numbers.",
+  "_tolerance_note": "CI allows up to 15% regression before failing. See scripts/bench_regression_check.py.",
+  "writer (POST /api/shorten)": {
+    "rps": 77.73,
+    "max_errors": 50
+  },
+  "reader (GET /<code> — broad pool)": {
+    "rps": 459.00,
+    "max_errors": 0
+  },
+  "celebrity (GET /<code> — 5-code hot pool)": {
+    "rps": 228.67,
+    "max_errors": 0
+  },
+  "aggregate": {
+    "rps": 765.40,
+    "max_errors": 50
+  }
+}

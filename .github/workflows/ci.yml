@@ -1,0 +1,222 @@
+name: CI
+
+# Runs on every push and every pull request.
+# Job execution order:
+#
+#   lint ──┐
+#           ├──► standards-check ──┐
+#   typecheck ──┘                   ├──► test ──► bench-regression
+#                                   │
+#   (standards-check runs in        │
+#    parallel with typecheck)       │
+#
+# A commit is blocked if ANY job fails.
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["**"]
+
+jobs:
+  # ── 1. Formatting ─────────────────────────────────────────────────────────
+  # Checks black + isort. Must pass before any other job proceeds.
+  lint:
+    name: "Format Check (black + isort)"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: black + isort check (Docker)
+        run: |
+          docker run --rm \
+            -v "$PWD":/work -w /work \
+            python:3.12-slim bash -lc \
+            "pip install --no-cache-dir black==24.1.1 isort==5.13.2 >/dev/null \
+             && black --check . && isort --check-only ."
+
+  # ── 2. Static type check ──────────────────────────────────────────────────
+  # Runs pyright in basic mode. Must pass before standards-check proceeds.
+  typecheck:
+    name: "Type Check (pyright)"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: pyright (Docker)
+        run: |
+          docker run --rm \
+            -v "$PWD":/work -w /work \
+            python:3.12-slim bash -lc \
+            "export DEBIAN_FRONTEND=noninteractive; \
+             apt-get update >/dev/null && \
+             apt-get install -y --no-install-recommends libatomic1 nodejs npm >/dev/null && \
+             pip install --no-cache-dir -r requirements.txt >/dev/null && \
+             npm -g --silent install pyright@1.1.408 >/dev/null && \
+             pyright"
+
+  # ── 3. Coding standards check ─────────────────────────────────────────────
+  # Enforces: no loose dicts, no Any, naming conventions, Pydantic patterns,
+  # import hygiene, common anti-patterns (ruff rule sets B, C4, SIM, RUF, UP).
+  # Runs after lint + typecheck pass.
+  standards-check:
+    name: "Coding Standards (ruff)"
+    runs-on: ubuntu-latest
+    needs: [lint, typecheck]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: ruff — style, patterns, anti-patterns (Docker)
+        run: |
+          docker run --rm \
+            -v "$PWD":/work -w /work \
+            python:3.12-slim bash -lc \
+            "pip install --no-cache-dir ruff==0.3.0 >/dev/null && \
+             ruff check . \
+               --select=E,W,F,UP,B,C4,SIM,RUF \
+               --ignore=B008,UP011,E501,W293 \
+               --output-format=concise"
+
+      - name: Verify no raw dict payloads at Kafka/Redis boundaries
+        # Grep for the banned patterns: dict[str, object] or dict[str, Any] used
+        # as function parameter types in kafka.py, service.py, worker files.
+        # Pydantic models must be used instead (ClickEvent, CachedURLPayload, etc.)
+        run: |
+          echo "=== Checking for banned loose-dict payload patterns ==="
+          BANNED=$(grep -rn \
+            --include="*.py" \
+            -E ":\s*dict\[str,\s*(object|Any|str \| int)\]" \
+            app/ services/ scripts/ \
+            | grep -v "test_" \
+            | grep -v "#.*noqa" \
+            | grep -v "bench_regression_check" \
+            || true)
+          if [ -n "$BANNED" ]; then
+            echo "FAIL: Found loose dict payload types (use Pydantic models instead):"
+            echo "$BANNED"
+            exit 1
+          fi
+          echo "OK: No banned loose-dict payload patterns found."
+
+      - name: Verify no list[list[object]] analytics rows
+        run: |
+          echo "=== Checking for banned list[list[object]] patterns ==="
+          BANNED=$(grep -rn \
+            --include="*.py" \
+            -E "list\[list\[object\]\]" \
+            app/ services/ \
+            || true)
+          if [ -n "$BANNED" ]; then
+            echo "FAIL: Found list[list[object]] (use a Pydantic model row type instead):"
+            echo "$BANNED"
+            exit 1
+          fi
+          echo "OK: No banned list[list[object]] patterns found."
+
+      - name: Verify coding standards doc is present and non-empty
+        run: |
+          test -s docs/coding-standards.md || \
+            (echo "FAIL: docs/coding-standards.md is missing or empty" && exit 1)
+          echo "OK: coding-standards.md present."
+
+      - name: Verify benchmark baselines file is present
+        run: |
+          test -s docs/bench_baselines.json || \
+            (echo "FAIL: docs/bench_baselines.json is missing or empty" && exit 1)
+          echo "OK: bench_baselines.json present."
+
+  # ── 4. Functional tests ───────────────────────────────────────────────────
+  # Spins up the full docker-compose stack and runs pytest.
+  # Runs after all static checks pass.
+  test:
+    name: "Functional Tests (pytest)"
+    runs-on: ubuntu-latest
+    needs: [standards-check]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Start stack
+        run: docker compose up --build -d
+
+      - name: Wait for stack healthy
+        run: |
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:8080/health >/dev/null 2>&1; then
+              echo "Stack is healthy"; break
+            fi
+            echo "Waiting for stack... ($i/30)"; sleep 5
+          done
+          curl -sf http://localhost:8080/health || \
+            (echo "FAIL: Stack never became healthy" && exit 1)
+
+      - name: pytest (docker compose)
+        run: docker compose --profile test up --build --abort-on-container-exit test
+
+      - name: Tear down
+        if: always()
+        run: docker compose down -v --remove-orphans
+
+  # ── 5. Benchmark regression gate ─────────────────────────────────────────
+  # Runs the full workflow benchmark (writer + reader + celebrity) and compares
+  # per-scenario RPS against docs/bench_baselines.json.
+  # Fails the commit if any scenario regresses more than 15%.
+  # Only runs after all tests pass.
+  bench-regression:
+    name: "Benchmark Regression Gate (make bench)"
+    runs-on: ubuntu-latest
+    needs: [test]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Start stack
+        run: docker compose up --build -d
+
+      - name: Wait for stack healthy
+        run: |
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:8080/health >/dev/null 2>&1; then
+              echo "Stack is healthy"; break
+            fi
+            echo "Waiting for stack... ($i/30)"; sleep 5
+          done
+          curl -sf http://localhost:8080/health || \
+            (echo "FAIL: Stack never became healthy" && exit 1)
+
+      - name: Run benchmark (writer + reader + celebrity)
+        run: |
+          docker run --rm --network host \
+            -e BENCH_BASE_URL=http://localhost:8080 \
+            -e BENCH_DURATION_SECONDS=15 \
+            -e BENCH_TIMEOUT_SECONDS=2 \
+            -e BENCH_WRITER_CONCURRENCY=10 \
+            -e BENCH_READER_CONCURRENCY=60 \
+            -e BENCH_CELEBRITY_CONCURRENCY=30 \
+            -e BENCH_CELEBRITY_POOL_SIZE=5 \
+            -e BENCH_WARMUP_URLS=200 \
+            -v "$PWD":/work -w /work \
+            python:3.12-slim bash -lc \
+            "pip install --no-cache-dir httpx==0.26.0 >/dev/null && python scripts/bench_http.py" \
+            | tee /tmp/bench_output.txt
+
+      - name: Regression check (≤15% tolerance)
+        run: |
+          docker run --rm \
+            -v "$PWD":/work \
+            -v /tmp/bench_output.txt:/tmp/bench_output.txt:ro \
+            python:3.12-slim bash -lc \
+            "python /work/scripts/bench_regression_check.py \
+               --results /tmp/bench_output.txt \
+               --baselines /work/docs/bench_baselines.json \
+               --tolerance 0.15"
+
+      - name: Upload benchmark results as artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bench-results-${{ github.sha }}
+          path: /tmp/bench_output.txt
+          retention-days: 30
+
+      - name: Tear down
+        if: always()
+        run: docker compose down -v --remove-orphans
