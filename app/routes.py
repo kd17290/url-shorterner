@@ -105,7 +105,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app import service
 from app.config import get_settings
 from app.database import get_db
-from app.redis import get_redis
+from app.redis import get_redis, get_redis_read
 from app.schemas import HealthResponse, URLCreate, URLResponse, URLStats
 
 __all__ = ["router"]
@@ -185,8 +185,11 @@ async def redirect_to_url(
     short_code: str,
     db: AsyncSession = Depends(get_db),
     cache: redis.Redis = Depends(get_redis),
+    cache_read: redis.Redis = Depends(get_redis_read),
 ) -> RedirectResponse:
-    url = await service.get_url_by_code(short_code, db, cache)
+    # cache_read → replica (read-only GET lookup, hot path)
+    # cache      → primary (INCR click buffer, XADD fallback stream)
+    url = await service.get_url_by_code(short_code, db, cache_read)
     if not url:
         raise HTTPException(status_code=404, detail="Short URL not found")
 
