@@ -236,6 +236,38 @@ ruff check app/ services/ scripts/ \
 
 ---
 
+## Lesson 12 — Three app replicas race to CREATE TABLE on startup
+
+**Problem:** The bench-regression job starts the full stack with 3 app replicas (`app1`, `app2`,
+`app3`) behind nginx. All three call `init_db()` at lifespan startup simultaneously. The first
+one creates the `urls` table; the other two crash with:
+```
+sqlalchemy.exc.IntegrityError: duplicate key value violates unique constraint "pg_type_typname_nsp_index"
+```
+This causes the app health check to fail because 2 of 3 replicas are down.
+
+**Root cause:** SQLAlchemy's `Base.metadata.create_all` is not safe for concurrent execution
+across multiple processes against the same database. PostgreSQL type registration races.
+
+**Fix:** Wrap `init_db` with a PostgreSQL session-level advisory lock:
+```python
+async def init_db() -> None:
+    async with engine.begin() as conn:
+        await conn.execute(text("SELECT pg_advisory_lock(12345678)"))
+        try:
+            await conn.run_sync(Base.metadata.create_all)
+        finally:
+            await conn.execute(text("SELECT pg_advisory_unlock(12345678)"))
+```
+The first replica acquires the lock and runs DDL. The others block on `pg_advisory_lock`,
+then when they acquire it, `create_all` is a no-op (tables already exist).
+
+**Rule:** Any app that runs multiple replicas and uses SQLAlchemy `create_all` at startup
+must serialize DDL with an advisory lock. The proper long-term solution is Alembic migrations
+run as a one-shot init container before the app replicas start.
+
+---
+
 ## Benchmark CI vs Local — Quick Reference
 
 | What | Local | CI |
