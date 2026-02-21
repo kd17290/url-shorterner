@@ -268,6 +268,58 @@ run as a one-shot init container before the app replicas start.
 
 ---
 
+## Lesson 13 — Full-stack benchmark does not belong in the push/PR gate
+
+**Problem:** The bench-regression job ran the full 15-container stack on every push.
+This caused ~80% of CI runs to fail due to:
+
+| Failure mode | Frequency | Cause |
+|---|---|---|
+| `Wait for app healthy` timeout | ~30% | Cold runner: image pull + build takes >5 min |
+| `Wait for Kafka + keygen` failure | ~40% | Kafka/keygen startup is non-deterministic on shared runners |
+| Regression check failure | ~20% | RPS varies with runner CPU load |
+| Pass | ~10% | Runner happened to be fast |
+
+**Root cause:** A 15-container stack with Kafka, ClickHouse, and keygen is fundamentally
+incompatible with shared 2-core GitHub Actions runners. The startup time and resource
+requirements are non-deterministic.
+
+**Industry standard fix:** Split into two separate workflows:
+
+```
+ci.yml  (push/PR gate — always runs, must always be green)
+  lint → typecheck → standards-check → test
+  - Only starts db-test + redis-test (2 containers)
+  - Completes in <5 min
+  - 100% deterministic
+  - concurrency: cancel-in-progress (kills stale runs on new push)
+  - timeout-minutes on every job (prevents runaway hangs)
+
+bench.yml  (separate workflow — NOT part of the push gate)
+  bench-regression
+  - Triggers: scheduled nightly 02:00 UTC + manual workflow_dispatch
+  - Runs full 15-container stack with 45-min timeout
+  - Kafka/keygen wait is non-fatal (logs warning, benchmark runs anyway)
+  - Results uploaded as 90-day artifact
+  - concurrency: single run at a time (cancel-in-progress)
+```
+
+**Rule:** Never put a job that requires a full application stack in the push/PR gate
+on shared runners. The gate must be fast (<5 min) and deterministic (same result
+regardless of runner load). Full-stack tests belong in scheduled or manual workflows
+on dedicated runners.
+
+**How to run the benchmark manually:**
+```bash
+# Via GitHub CLI
+gh workflow run bench.yml
+
+# Via Makefile (local)
+make bench
+```
+
+---
+
 ## Benchmark CI vs Local — Quick Reference
 
 | What | Local | CI |
