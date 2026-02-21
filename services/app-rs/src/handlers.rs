@@ -109,6 +109,11 @@ pub async fn shorten(
     };
 
     state.metrics.db_writes_total.inc();
+    state
+        .metrics
+        .http_requests_total
+        .with_label_values(&["shorten", "POST", "201"])
+        .inc();
 
     // Cache the new URL.
     {
@@ -138,6 +143,11 @@ pub async fn redirect(
     if let Some(url) = cached {
         state.metrics.cache_hits_total.inc();
         state.metrics.redis_ops_total.inc();
+        state
+            .metrics
+            .http_requests_total
+            .with_label_values(&["redirect", "GET", "302"])
+            .inc();
         let original = url.original_url.clone();
         let state2 = state.clone();
         let code = short_code.clone();
@@ -175,6 +185,11 @@ pub async fn redirect(
                     tracing::warn!("cache set failed: {e}");
                 }
             }
+            state
+                .metrics
+                .http_requests_total
+                .with_label_values(&["redirect", "GET", "302"])
+                .inc();
             let original = url.original_url.clone();
             let state2 = state.clone();
             let code = short_code.clone();
@@ -205,7 +220,14 @@ pub async fn stats(State(state): State<Arc<AppState>>, Path(short_code): Path<St
             Json(serde_json::json!({ "detail": "Short URL not found" })),
         )
             .into_response(),
-        Some(url) => Json(UrlResponse::from_url(&url, &state.config.base_url)).into_response(),
+        Some(url) => {
+            state
+                .metrics
+                .http_requests_total
+                .with_label_values(&["stats", "GET", "200"])
+                .inc();
+            Json(UrlResponse::from_url(&url, &state.config.base_url)).into_response()
+        }
     }
 }
 
