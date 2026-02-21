@@ -127,7 +127,9 @@ async fn allocate(
                     tracing::error!("both keygen backends failed: {e}");
                     return (
                         StatusCode::SERVICE_UNAVAILABLE,
-                        Json(serde_json::json!({ "detail": "key allocation backends unavailable" })),
+                        Json(
+                            serde_json::json!({ "detail": "key allocation backends unavailable" }),
+                        ),
                     )
                         .into_response();
                 }

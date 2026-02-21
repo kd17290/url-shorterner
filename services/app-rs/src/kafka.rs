@@ -17,11 +17,7 @@ pub fn create_producer(bootstrap_servers: &str) -> Result<FutureProducer> {
 
 /// Publish a click event to Kafka. Returns Ok(true) on success, Ok(false) on timeout/error.
 /// Never propagates errors — caller falls back to Redis stream.
-pub async fn publish_click(
-    producer: &FutureProducer,
-    topic: &str,
-    event: &ClickEvent,
-) -> bool {
+pub async fn publish_click(producer: &FutureProducer, topic: &str, event: &ClickEvent) -> bool {
     let payload = match serde_json::to_string(event) {
         Ok(p) => p,
         Err(_) => return false,

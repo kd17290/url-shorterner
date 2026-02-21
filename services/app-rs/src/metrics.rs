@@ -16,33 +16,36 @@ static METRICS: OnceLock<AppMetrics> = OnceLock::new();
 
 pub fn init(registry: &Registry) -> &'static AppMetrics {
     METRICS.get_or_init(|| {
-        let redis_ops = IntCounter::with_opts(
-            Opts::new("app_edge_redis_ops_total", "Redis ops from app-rs"),
-        )
+        let redis_ops = IntCounter::with_opts(Opts::new(
+            "app_edge_redis_ops_total",
+            "Redis ops from app-rs",
+        ))
         .unwrap();
-        let db_reads = IntCounter::with_opts(
-            Opts::new("app_edge_db_reads_total", "DB reads from app-rs"),
-        )
+        let db_reads =
+            IntCounter::with_opts(Opts::new("app_edge_db_reads_total", "DB reads from app-rs"))
+                .unwrap();
+        let db_writes = IntCounter::with_opts(Opts::new(
+            "app_edge_db_writes_total",
+            "DB writes from app-rs",
+        ))
         .unwrap();
-        let db_writes = IntCounter::with_opts(
-            Opts::new("app_edge_db_writes_total", "DB writes from app-rs"),
-        )
+        let kafka_pub = IntCounter::with_opts(Opts::new(
+            "app_edge_kafka_publish_total",
+            "Kafka publishes from app-rs",
+        ))
         .unwrap();
-        let kafka_pub = IntCounter::with_opts(
-            Opts::new("app_edge_kafka_publish_total", "Kafka publishes from app-rs"),
-        )
+        let stream_fb = IntCounter::with_opts(Opts::new(
+            "app_edge_stream_fallback_total",
+            "Redis stream fallbacks",
+        ))
         .unwrap();
-        let stream_fb = IntCounter::with_opts(
-            Opts::new("app_edge_stream_fallback_total", "Redis stream fallbacks"),
-        )
-        .unwrap();
-        let cache_hits = IntCounter::with_opts(
-            Opts::new("app_edge_cache_hits_total", "Redis cache hits"),
-        )
-        .unwrap();
-        let cache_misses = IntCounter::with_opts(
-            Opts::new("app_edge_cache_misses_total", "Redis cache misses"),
-        )
+        let cache_hits =
+            IntCounter::with_opts(Opts::new("app_edge_cache_hits_total", "Redis cache hits"))
+                .unwrap();
+        let cache_misses = IntCounter::with_opts(Opts::new(
+            "app_edge_cache_misses_total",
+            "Redis cache misses",
+        ))
         .unwrap();
         let http_reqs = IntCounterVec::new(
             Opts::new("http_requests_total", "HTTP requests by handler and status"),

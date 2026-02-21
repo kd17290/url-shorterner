@@ -15,10 +15,7 @@ use crate::{
 // ── Health ────────────────────────────────────────────────────────────────────
 
 pub async fn health(State(state): State<Arc<AppState>>) -> Json<HealthResponse> {
-    let db_status = match sqlx::query("SELECT 1")
-        .execute(&state.db)
-        .await
-    {
+    let db_status = match sqlx::query("SELECT 1").execute(&state.db).await {
         Ok(_) => "healthy".to_string(),
         Err(e) => format!("unhealthy: {e}"),
     };
@@ -191,10 +188,7 @@ pub async fn redirect(
 
 // ── GET /api/stats/:short_code ────────────────────────────────────────────────
 
-pub async fn stats(
-    State(state): State<Arc<AppState>>,
-    Path(short_code): Path<String>,
-) -> Response {
+pub async fn stats(State(state): State<Arc<AppState>>, Path(short_code): Path<String>) -> Response {
     let url: Option<Url> = sqlx::query_as(
         "SELECT id, short_code, original_url, clicks, created_at, updated_at FROM urls WHERE short_code = $1",
     )

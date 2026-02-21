@@ -280,7 +280,9 @@ def generate_short_code(length: int = settings.SHORT_CODE_LENGTH) -> str:
     return generate(ALPHABET, length)
 
 
-async def get_url_by_code(short_code: str, db: AsyncSession, cache: redis.Redis, cache_write: redis.Redis | None = None) -> URL | None:
+async def get_url_by_code(
+    short_code: str, db: AsyncSession, cache: redis.Redis, cache_write: redis.Redis | None = None
+) -> URL | None:
     assert isinstance(short_code, str) and short_code, f"short_code must be a non-empty string, got {short_code!r}"
     assert db is not None, "db must not be None"
     assert cache is not None, "cache must not be None"

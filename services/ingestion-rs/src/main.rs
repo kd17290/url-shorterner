@@ -46,7 +46,10 @@ fn evar_or(key: &str, default: &str) -> String {
 }
 
 fn evar_parse<T: std::str::FromStr>(key: &str, default: T) -> T {
-    std::env::var(key).ok().and_then(|v| v.parse().ok()).unwrap_or(default)
+    std::env::var(key)
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(default)
 }
 
 impl Config {
@@ -94,7 +97,10 @@ struct ClickAggregates {
 
 impl ClickAggregates {
     fn add(&mut self, short_code: &str, delta: i64) {
-        *self.by_short_code.entry(short_code.to_string()).or_insert(0) += delta;
+        *self
+            .by_short_code
+            .entry(short_code.to_string())
+            .or_insert(0) += delta;
     }
 
     fn total(&self) -> i64 {
@@ -119,7 +125,11 @@ fn init_metrics(registry: &Registry) -> WorkerMetrics {
     let kafka = IntCounter::new("ingestion_kafka_events_total", "Kafka events consumed").unwrap();
     let redis_buf = IntCounter::new("ingestion_redis_buffer_total", "Redis buffer ops").unwrap();
     let db_upd = IntCounter::new("ingestion_db_updates_total", "DB updates applied").unwrap();
-    let ch_rows = IntCounter::new("ingestion_clickhouse_rows_total", "ClickHouse rows inserted").unwrap();
+    let ch_rows = IntCounter::new(
+        "ingestion_clickhouse_rows_total",
+        "ClickHouse rows inserted",
+    )
+    .unwrap();
     registry.register(Box::new(kafka.clone())).ok();
     registry.register(Box::new(redis_buf.clone())).ok();
     registry.register(Box::new(db_upd.clone())).ok();
@@ -174,7 +184,11 @@ async fn insert_clickhouse_rows(
         "INSERT INTO {database}.click_events (short_code, delta, event_time) VALUES {rows}"
     );
     let url = format!("{ch_url}/?user={username}&password={password}");
-    http.post(&url).body(query).send().await?.error_for_status()?;
+    http.post(&url)
+        .body(query)
+        .send()
+        .await?
+        .error_for_status()?;
     Ok(aggregates.by_short_code.len())
 }
 
@@ -207,7 +221,10 @@ async fn flush_redis_to_db(
     config: &Config,
     metrics: &WorkerMetrics,
 ) -> anyhow::Result<()> {
-    let agg_key = agg_hash_key(&config.ingestion_agg_key_prefix, &config.ingestion_consumer_name);
+    let agg_key = agg_hash_key(
+        &config.ingestion_agg_key_prefix,
+        &config.ingestion_consumer_name,
+    );
     let raw: HashMap<String, String> = conn.hgetall(&agg_key).await?;
     if raw.is_empty() {
         return Ok(());
@@ -229,11 +246,13 @@ async fn flush_redis_to_db(
     // Flush to PostgreSQL.
     let mut tx = pool.begin().await?;
     for (code, delta) in &aggregates.by_short_code {
-        sqlx::query("UPDATE urls SET clicks = clicks + $1, updated_at = now() WHERE short_code = $2")
-            .bind(delta)
-            .bind(code)
-            .execute(&mut *tx)
-            .await?;
+        sqlx::query(
+            "UPDATE urls SET clicks = clicks + $1, updated_at = now() WHERE short_code = $2",
+        )
+        .bind(delta)
+        .bind(code)
+        .execute(&mut *tx)
+        .await?;
         metrics.db_updates_total.inc();
     }
     tx.commit().await?;
@@ -348,7 +367,10 @@ async fn main() -> anyhow::Result<()> {
     let flush_interval = Duration::from_secs(config.ingestion_flush_interval_seconds);
     let mut last_flush = std::time::Instant::now();
     let mut pending = ClickAggregates::default();
-    let agg_key = agg_hash_key(&config.ingestion_agg_key_prefix, &config.ingestion_consumer_name);
+    let agg_key = agg_hash_key(
+        &config.ingestion_agg_key_prefix,
+        &config.ingestion_consumer_name,
+    );
 
     loop {
         // Poll Kafka with a short timeout so we can flush on interval.
@@ -398,14 +420,8 @@ async fn main() -> anyhow::Result<()> {
 
         // Flush Redis aggregates to DB + ClickHouse on interval.
         if last_flush.elapsed() >= flush_interval {
-            if let Err(e) = flush_redis_to_db(
-                &mut redis_conn,
-                &pool,
-                &http,
-                &config,
-                &metrics,
-            )
-            .await
+            if let Err(e) =
+                flush_redis_to_db(&mut redis_conn, &pool, &http, &config, &metrics).await
             {
                 tracing::warn!("flush failed: {e}");
             }

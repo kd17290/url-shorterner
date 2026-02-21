@@ -31,10 +31,7 @@ impl AppState {
         metrics: &'static AppMetrics,
         registry: Registry,
     ) -> Arc<Self> {
-        let keygen = KeygenClient::new(
-            config.keygen_service_url.clone(),
-            config.id_block_size,
-        );
+        let keygen = KeygenClient::new(config.keygen_service_url.clone(), config.id_block_size);
         Arc::new(Self {
             config,
             db,
