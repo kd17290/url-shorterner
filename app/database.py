@@ -64,6 +64,7 @@ Functions:
 
 from collections.abc import AsyncGenerator
 
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
 
@@ -101,8 +102,15 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
 
 
 async def init_db() -> None:
+    # Use a PostgreSQL advisory lock so only one replica runs DDL when multiple
+    # app instances start simultaneously. Others acquire the lock after DDL is
+    # done and find all tables already exist (create_all is a no-op for them).
     async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+        await conn.execute(text("SELECT pg_advisory_lock(12345678)"))
+        try:
+            await conn.run_sync(Base.metadata.create_all)
+        finally:
+            await conn.execute(text("SELECT pg_advisory_unlock(12345678)"))
 
 
 async def close_db() -> None:
