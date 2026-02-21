@@ -70,7 +70,7 @@ from sqlalchemy.orm import DeclarativeBase
 
 from app.config import get_settings
 
-__all__ = ["Base", "get_db", "init_db", "close_db"]
+__all__ = ["Base", "close_db", "get_db", "init_db"]
 
 settings = get_settings()
 

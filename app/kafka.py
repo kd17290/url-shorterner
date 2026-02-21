@@ -7,7 +7,7 @@ from aiokafka import AIOKafkaProducer
 from app.config import get_settings
 from app.schemas import ClickEvent
 
-__all__ = ["init_kafka", "close_kafka", "publish_click_event"]
+__all__ = ["close_kafka", "init_kafka", "publish_click_event"]
 
 settings = get_settings()
 

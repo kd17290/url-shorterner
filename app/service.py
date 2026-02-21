@@ -138,11 +138,11 @@ from app.models import URL
 from app.schemas import CachedURLPayload, URLCreate
 
 __all__ = [
+    "create_short_url",
     "generate_short_code",
     "get_url_by_code",
-    "create_short_url",
-    "increment_clicks",
     "get_url_stats",
+    "increment_clicks",
 ]
 
 settings = get_settings()

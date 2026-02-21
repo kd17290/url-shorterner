@@ -30,6 +30,7 @@ from dataclasses import dataclass
 
 import httpx
 
+
 # ── shared counters (written from many coroutines) ───────────────────────────
 @dataclass
 class Counters:

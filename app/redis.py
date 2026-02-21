@@ -57,7 +57,7 @@ import redis.asyncio as redis
 
 from app.config import get_settings
 
-__all__ = ["get_redis", "get_redis_read", "close_redis"]
+__all__ = ["close_redis", "get_redis", "get_redis_read"]
 
 settings = get_settings()
 
