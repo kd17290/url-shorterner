@@ -26,16 +26,16 @@ def parse_results(path: str) -> dict[str, dict[str, float]]:
         for line in f:
             m = SCENARIO_RE.match(line.strip())
             if m:
-                current = m.group(1)
+                current = m.group(1) or ""
                 results[current] = {"rps": 0.0, "ok": 0.0, "errors": 0.0}
                 continue
             if current is None:
                 continue
-            if (r := RPS_RE.search(line)):
+            if r := RPS_RE.search(line):
                 results[current]["rps"] = float(r.group(1))
-            if (r := OK_RE.search(line)):
+            if r := OK_RE.search(line):
                 results[current]["ok"] = float(r.group(1))
-            if (r := ERRORS_RE.search(line)):
+            if r := ERRORS_RE.search(line):
                 results[current]["errors"] = float(r.group(1))
     return results
 
@@ -79,13 +79,15 @@ def main() -> None:
         label = key[:44]
         print(f"{label:<45} {py_rps:>12.1f} {rs_rps:>12.1f} {speedup_str:>10} {rs_errors:>12.0f}")
 
-        rows.append({
-            "scenario": key,
-            "python_rps": py_rps,
-            "rust_rps": rs_rps,
-            "speedup": round(speedup, 2) if py_rps > 0 else None,
-            "rust_errors": rs_errors,
-        })
+        rows.append(
+            {
+                "scenario": key,
+                "python_rps": py_rps,
+                "rust_rps": rs_rps,
+                "speedup": round(speedup, 2) if py_rps > 0 else None,
+                "rust_errors": rs_errors,
+            }
+        )
 
     print()
 
