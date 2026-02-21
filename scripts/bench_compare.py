@@ -26,8 +26,9 @@ def parse_results(path: str) -> dict[str, dict[str, float]]:
         for line in f:
             m = SCENARIO_RE.match(line.strip())
             if m:
-                current = m.group(1) or ""
-                results[current] = {"rps": 0.0, "ok": 0.0, "errors": 0.0}
+                key: str = m.group(1) or ""
+                current = key
+                results[key] = {"rps": 0.0, "ok": 0.0, "errors": 0.0}
                 continue
             if current is None:
                 continue
