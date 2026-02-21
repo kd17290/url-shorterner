@@ -89,6 +89,7 @@ pub async fn shorten(
         }
     };
 
+    // Optimistic insertion with collision handling (extremely rare case)
     let url: Url = match sqlx::query_as(
         r#"
         INSERT INTO urls (short_code, original_url, clicks)
@@ -103,8 +104,58 @@ pub async fn shorten(
     {
         Ok(u) => u,
         Err(e) => {
-            tracing::error!("db insert error: {e}");
-            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+            // Check if it's a uniqueness constraint violation
+            if e.to_string().contains("unique constraint") || e.to_string().contains("duplicate key") {
+                tracing::warn!("Collision detected for short_code: {}, retrying...", short_code);
+                
+                if payload.custom_code.is_some() {
+                    // Custom code collision - real error
+                    return (
+                        StatusCode::CONFLICT,
+                        Json(serde_json::json!({ "detail": format!("Custom code '{}' is already taken", short_code) })),
+                    )
+                        .into_response();
+                } else {
+                    // Generated code collision - retry once (should never happen with proper allocator)
+                    let retry_id = match state.keygen.next_id().await {
+                        Ok(id) => id,
+                        Err(e) => {
+                            tracing::error!("keygen retry error: {e}");
+                            return StatusCode::SERVICE_UNAVAILABLE.into_response();
+                        }
+                    };
+                    let retry_code = match crate::keygen::encode_id(retry_id, state.config.short_code_length) {
+                        Ok(code) => code,
+                        Err(e) => {
+                            tracing::error!("encode_id retry error: {e}");
+                            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+                        }
+                    };
+                    
+                    // Retry insertion
+                    match sqlx::query_as(
+                        r#"
+                        INSERT INTO urls (short_code, original_url, clicks)
+                        VALUES ($1, $2, 0)
+                        RETURNING id, short_code, original_url, clicks, created_at, updated_at
+                        "#,
+                    )
+                    .bind(&retry_code)
+                    .bind(&payload.url)
+                    .fetch_one(&state.db)
+                    .await
+                    {
+                        Ok(u) => u,
+                        Err(e2) => {
+                            tracing::error!("db retry insert error: {e2}");
+                            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+                        }
+                    }
+                }
+            } else {
+                tracing::error!("db insert error: {e}");
+                return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+            }
         }
     };
 

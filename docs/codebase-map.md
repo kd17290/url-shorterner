@@ -315,6 +315,545 @@ These structures are defined in Python schemas and mirrored exactly in Rust mode
 
 ---
 
+## 9. Architectural Patterns & Gotchas
+
+This section captures the key learnings, tradeoffs, and common pitfalls discovered while building and maintaining this dual-stack (Python + Rust) URL shortener.
+
+### 🏗️ Service Layer Architecture Patterns
+
+#### ✅ **Recommended Pattern: Module Import + Infrastructure DI**
+
+```python
+# ✅ Current approach - keep this
+from app import service
+
+@router.post("/api/shorten")
+async def shorten_url(
+    payload: URLCreate,
+    db: AsyncSession = Depends(get_db),      # Infrastructure via FastAPI DI
+    cache: redis.Redis = Depends(get_redis), # Infrastructure via FastAPI DI
+) -> URLResponse:
+    url = await service.create_short_url(payload, db, cache)  # Direct service call
+    return URLResponse.model_validate(url)
+```
+
+**Why this works:**
+- **Performance**: Direct function calls, no per-request object allocation
+- **Simplicity**: Clear separation between HTTP handling and business logic
+- **Testability**: Easy to mock service functions with `unittest.mock`
+- **FastAPI idiomatic**: DI for infrastructure, direct calls for logic
+
+#### ❌ **Anti-Pattern: Service Class Injection**
+
+```python
+# ❌ Don't do this - unnecessary complexity
+class URLService:
+    def __init__(self, db: AsyncSession, cache: redis.Redis):
+        self.db = db
+        self.cache = cache
+    
+    async def create_short_url(self, payload: URLCreate) -> URL:
+        # Implementation...
+
+def get_url_service(...) -> URLService:
+    return URLService(db, cache)
+
+@router.post("/api/shorten")
+async def shorten_url(
+    payload: URLCreate,
+    url_service: URLService = Depends(get_url_service),  # Unnecessary overhead
+) -> URLResponse:
+    url = await url_service.create_short_url(payload)
+    return URLResponse.model_validate(url)
+```
+
+**Problems:**
+- **Overhead**: Object creation per request in hot path
+- **Complexity**: More boilerplate, factories, and wiring
+- **No Benefits**: Service functions are already pure and testable
+
+#### 🎯 **When to Use Service Classes**
+
+Only consider service injection when you have:
+1. **Multiple implementations** (different payment providers, storage backends)
+2. **Runtime switching** (feature flags, A/B testing)
+3. **Complex state** (service needs own configuration and lifecycle)
+4. **Interface segregation** (want to hide implementation details)
+
+---
+
+### 🌍 Global State vs Dependency Injection
+
+#### ⚠️ **Global State Gotchas (Current Issues)**
+
+```python
+# service.py - PROBLEMATIC global state
+settings = get_settings()  # ← Fixed at import time
+APP_EDGE_DB_READS_TOTAL = Counter(...)  # ← Global metrics persist between tests
+_id_block_next: int = 0  # ← Thread safety concerns
+_id_block_end: int = -1  # ← Memory never cleaned up
+```
+
+**Problems with global state:**
+- **Testing**: Global metrics persist between tests, causing flaky tests
+- **Configuration**: Settings fixed at import time, can't change per-request
+- **Thread safety**: Global variables need locks in concurrent environments
+- **Memory leaks**: Global state never gets cleaned up
+
+#### ✅ **Better Pattern: Service Dependencies Parameter**
+
+```python
+# Phase 1: Backward compatible
+async def create_short_url(payload, db, cache, deps: ServiceDeps | None = None):
+    if deps:
+        deps.metrics.inc_db_reads()
+    else:
+        # Fallback to global for backward compatibility
+        APP_EDGE_DB_READS_TOTAL.inc()
+
+# Phase 2: Full migration
+@dataclass
+class ServiceDeps:
+    db: AsyncSession
+    cache: redis.Redis
+    config: ConfigProtocol
+    metrics: MetricsProtocol
+
+async def create_short_url(payload, deps: ServiceDeps) -> URL:
+    settings = deps.config.get_settings()
+    deps.metrics.inc_db_reads()
+    # Clean implementation with no global state
+```
+
+---
+
+### 🏛️ Dependency Injection Best Practices
+
+#### ✅ **What to Inject via FastAPI DI**
+
+```python
+# ✅ Infrastructure dependencies
+db: AsyncSession = Depends(get_db)
+cache: redis.Redis = Depends(get_redis)
+cache_read: redis.Redis = Depends(get_redis_read)
+```
+
+**Why these work:**
+- **External resources**: Database connections, Redis clients
+- **Lifecycle management**: FastAPI handles setup/teardown
+- **Per-request state**: Each request gets its own connection
+- **Testability**: Easy to inject test doubles
+
+#### ❌ **What NOT to Inject via FastAPI DI**
+
+```python
+# ❌ Don't inject these
+service: URLService = Depends(get_url_service)  # Business logic
+config: Settings = Depends(get_settings)        # Configuration
+metrics: Metrics = Depends(get_metrics)        # Utilities
+```
+
+**Why these don't work:**
+- **Business logic**: Should be called directly, not instantiated per request
+- **Configuration**: Usually static per deployment
+- **Utilities**: Better as global singletons or module-level functions
+
+---
+
+### 🔄 Async/Await Patterns & Gotchas
+
+#### ✅ **Correct Async Patterns**
+
+```python
+# ✅ Non-blocking I/O throughout
+async def redirect_to_url(short_code: str, db: AsyncSession, cache: redis.Redis):
+    # All I/O operations are awaited
+    cached = await cache.get(cache_key)  # Redis GET
+    if not cached:
+        result = await db.execute(select(URL).where(URL.short_code == short_code))  # DB query
+    await cache.set(cache_key, data)  # Redis SET
+    await increment_clicks(url, db, cache)  # Business logic
+```
+
+#### ❌ **Common Async Gotchas**
+
+```python
+# ❌ Blocking operations in async code
+async def bad_example():
+    time.sleep(1)  # ❌ Blocks event loop
+    sync_requests.get("https://example.com")  # ❌ Blocking HTTP
+    
+# ✅ Correct alternatives
+async def good_example():
+    await asyncio.sleep(1)  # ✅ Non-blocking
+    async with httpx.AsyncClient() as client:  # ✅ Async HTTP
+        await client.get("https://example.com")
+```
+
+#### 🎯 **Background Tasks Patterns**
+
+```python
+# Python: Fire-and-forget (careful with errors)
+async def track_click_background(url: URL):
+    try:
+        await increment_clicks(url, db, cache)
+    except Exception:
+        # Log but don't fail the main request
+        logger.error(f"Failed to track click: {e}")
+
+# Rust: Proper background task with error handling
+tokio::spawn(async move {
+    if let Err(e) = track_click(url).await {
+        tracing::error!("Failed to track click: {}", e);
+    }
+});
+```
+
+---
+
+### 📊 Enum Patterns vs String Literals
+
+#### ❌ **String Literal Problems**
+
+```python
+# ❌ Error-prone string literals
+if status == "healthy":  # What if typo "healty"?
+    return {"status": "healthy", "database": "healthy"}
+```
+
+**Problems:**
+- **Typos**: `"healty"` vs `"healthy"` - runtime errors
+- **No autocomplete**: IDE can't suggest valid values
+- **No type safety**: Any string is accepted
+- **Hard to refactor**: Need to find all occurrences manually
+
+#### ✅ **Enum Pattern Benefits**
+
+```python
+# ✅ Type-safe enums
+from enum import StrEnum
+
+class HealthStatus(StrEnum):
+    HEALTHY = "healthy"
+    UNHEALTHY = "unhealthy"
+
+def health_check() -> HealthResponse:
+    status = HealthStatus.HEALTHY  # ✅ Type-safe, autocomplete
+    return HealthResponse(status=status)  # ✅ Serialized to "healthy"
+```
+
+**Benefits:**
+- **Type safety**: Compile/type-time error checking
+- **IDE support**: Full autocomplete and refactoring
+- **Documentation**: Enum definition shows all valid values
+- **Refactoring safe**: IDE can find all usages
+- **JSON compatible**: `StrEnum` serializes to strings automatically
+
+---
+
+### 🧪 Testing Patterns & Gotchas
+
+#### ✅ **Good Testing Patterns**
+
+```python
+# ✅ Test service functions directly
+async def test_get_url_by_code_cache_hit():
+    # Arrange
+    mock_cache = AsyncMock()
+    mock_cache.get.return_value = json.dumps({"short_code": "abc123", ...})
+    
+    # Act
+    result = await service.get_url_by_code("abc123", mock_db, mock_cache)
+    
+    # Assert
+    assert result.short_code == "abc123"
+    mock_cache.get.assert_called_once_with("url:abc123")
+
+# ✅ Test routes with dependency overrides
+async def test_redirect_endpoint():
+    app.dependency_overrides[get_redis] = lambda: mock_cache
+    async with AsyncClient(app=app, base_url="http://test") as client:
+        response = await client.get("/abc123")
+        assert response.status_code == 307
+```
+
+#### ❌ **Testing Gotchas**
+
+```python
+# ❌ Testing with global state
+def test_with_global_metrics():
+    APP_EDGE_DB_READS_TOTAL.inc()  # ❌ Persists to other tests
+    
+# ❌ Not cleaning up test data
+async def test_create_url():
+    url = await service.create_short_url(...)  # ❌ Leaves data in DB
+    # No cleanup = test pollution
+
+# ✅ Proper test cleanup
+async def test_create_url_with_cleanup():
+    url = await service.create_short_url(...)
+    try:
+        assert url.short_code is not None
+    finally:
+        await db.delete(url)  # ✅ Clean up
+```
+
+---
+
+### 🚀 Performance Optimization Patterns
+
+#### ✅ **Cache-First Pattern**
+
+```python
+# ✅ Always check cache first
+async def get_url_by_code(short_code: str, db, cache_read, cache_write=None):
+    # 1. Try cache (fast)
+    cached = await cache_read.get(f"url:{short_code}")
+    if cached:
+        return URL(**json.loads(cached))
+    
+    # 2. Cache miss - go to database (slow)
+    result = await db.execute(select(URL).where(URL.short_code == short_code))
+    url = result.scalar_one_or_none()
+    
+    # 3. Populate cache for next time
+    if url and cache_write:
+        await cache_write.set(f"url:{short_code}", json.dumps(url.model_dump()), ex=3600)
+    
+    return url
+```
+
+#### ✅ **Write-Back Pattern for Clicks**
+
+```python
+# ✇ Buffer clicks in Redis, batch flush to DB
+async def increment_clicks(url: URL, db, cache):
+    # Fast Redis increment
+    buffer_key = f"click_buffer:{url.short_code}"
+    count = await cache.incr(buffer_key)
+    
+    # Set expiry on first increment
+    if count == 1:
+        await cache.expire(buffer_key, 300)  # 5 minutes
+    
+    # Async Kafka publish (non-blocking)
+    await publish_click_event(url.short_code, 1)
+```
+
+#### ❌ **Performance Anti-Patterns**
+
+```python
+# ❌ N+1 query problem
+async def get_multiple_urls(codes: list[str], db):
+    urls = []
+    for code in codes:  # ❌ N database queries
+        url = await get_url_by_code(code, db, cache)
+        urls.append(url)
+    return urls
+
+# ✅ Batch query instead
+async def get_multiple_urls(codes: list[str], db):
+    result = await db.execute(select(URL).where(URL.short_code.in_(codes)))  # ✅ 1 query
+    return result.scalars().all()
+```
+
+---
+
+### 🔧 Configuration Management Patterns
+
+#### ✅ **Good Configuration Pattern**
+
+```python
+# ✅ Centralized settings with validation
+class Settings(BaseSettings):
+    DATABASE_URL: str
+    REDIS_URL: str
+    CLICK_BUFFER_TTL_SECONDS: int = 300
+    
+    class Config:
+        env_file = ".env"
+        case_sensitive = True
+
+# ✅ Cached settings (expensive parsing)
+@lru_cache
+def get_settings() -> Settings:
+    return Settings()  # Parse once, cache forever
+```
+
+#### ❌ **Configuration Gotchas**
+
+```python
+# ❌ Environment variables scattered throughout code
+redis_url = os.getenv("REDIS_URL")  # ❌ No validation, no defaults
+db_url = os.getenv("DATABASE_URL")   # ❌ No type checking
+
+# ❌ Configuration at import time
+settings = Settings()  # ❌ Can't change for testing
+```
+
+---
+
+### 📝 Error Handling Patterns
+
+#### ✅ **Consistent Error Handling**
+
+```python
+# ✅ Domain exceptions for business logic
+class URLNotFound(Exception):
+    pass
+
+class CustomCodeTaken(Exception):
+    pass
+
+# ✅ Convert domain exceptions to HTTP responses
+@router.post("/api/shorten")
+async def shorten_url(payload: URLCreate):
+    try:
+        url = await service.create_short_url(payload, db, cache)
+        return URLResponse.model_validate(url)
+    except CustomCodeTaken as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+```
+
+#### ❌ **Error Handling Gotchas**
+
+```python
+# ❌ Swallowing errors
+async def bad_increment_clicks(url: URL, db, cache):
+    try:
+        await cache.incr(f"click_buffer:{url.short_code}")
+    except Exception:
+        pass  # ❌ Silent failure, lost data
+
+# ❌ Inconsistent error responses
+if not url:
+    return {"error": "not found"}  # ❌ No status code
+    # vs
+    raise HTTPException(status_code=404)  # ✅ Proper HTTP error
+```
+
+---
+
+### 🔄 Database Transaction Patterns
+
+#### ✅ **Transaction Management**
+
+```python
+# ✅ Explicit transaction boundaries
+async def create_short_url(payload: URLCreate, db, cache):
+    async with db.begin():  # ✅ Automatic rollback on exception
+        # Check uniqueness
+        existing = await db.execute(select(URL).where(URL.short_code == short_code))
+        if existing.scalar_one_or_none():
+            raise ValueError(f"Custom code '{short_code}' is already taken")
+        
+        # Create URL
+        url = URL(short_code=short_code, original_url=str(payload.url))
+        db.add(url)
+        await db.flush()  # Get ID without committing
+        
+        # Cache population (can fail without affecting DB)
+        await cache.set(f"url:{short_code}", json.dumps(url.model_dump()), ex=3600)
+    
+    return url  # Transaction committed here
+```
+
+#### ❌ **Transaction Gotchas**
+
+```python
+# ❌ No transaction control
+async def bad_create_url(payload: URLCreate, db, cache):
+    # Check uniqueness
+    existing = await db.execute(select(URL).where(URL.short_code == short_code))
+    if existing.scalar_one_or_none():
+        raise ValueError("Code taken")  # ❌ Race condition possible
+    
+    # Create URL
+    url = URL(short_code=short_code, original_url=str(payload.url))
+    db.add(url)
+    await db.commit()  # ❌ Could fail halfway through
+
+# ❌ Long-running transactions
+async def bad_long_transaction(db):
+    async with db.begin():
+        await db.execute(update(URL).values(clicks=URL.clicks + 1))  # Fast
+        await some_slow_external_api_call()  # ❌ Blocks transaction, holds locks
+        await cache.invalidate_all()  # ❌ Slow operation in transaction
+```
+
+---
+
+### 🐛 Common Debugging Gotchas
+
+#### 🔍 **Async Debugging**
+
+```python
+# ❌ Blocking debug prints
+async def bad_debug():
+    print(f"Before: {await some_async_operation()}")  # ❌ Hard to correlate logs
+    result = await another_operation()
+    print(f"After: {result}")
+
+# ✅ Structured logging
+async def good_debug():
+    logger.info("Starting operation", operation="get_url", code=short_code)
+    result = await some_async_operation()
+    logger.info("Completed operation", operation="get_url", result_count=len(result))
+    return result
+```
+
+#### 🔍 **Race Condition Debugging**
+
+```python
+# ❌ Hard-to-reproduce race conditions
+async def concurrent_url_creation():
+    # Two requests might generate same custom code simultaneously
+    if not await db.execute(select(URL).where(URL.short_code == custom_code)):
+        # Race condition: another request might insert here
+        url = URL(short_code=custom_code, original_url=url)
+        db.add(url)
+        await db.commit()  # ❌ Unique constraint violation
+
+# ✅ Database constraints + proper error handling
+async def safe_url_creation():
+    try:
+        url = URL(short_code=custom_code, original_url=url)
+        db.add(url)
+        await db.commit()  # ✅ Let database handle race condition
+    except IntegrityError:
+        await db.rollback()
+        raise ValueError(f"Custom code '{custom_code}' is already taken")
+```
+
+---
+
+### 📚 Additional Learning Resources
+
+#### 🏛️ **Architecture Patterns to Study**
+- **Repository Pattern**: Abstract data access behind interfaces
+- **Unit of Work Pattern**: Manage transactions and consistency
+- **CQRS Pattern**: Separate read and write models
+- **Event Sourcing**: Store events instead of current state
+- **Circuit Breaker Pattern**: Handle external service failures
+
+#### 🧪 **Testing Patterns to Master**
+- **Test Doubles**: Mocks, stubs, fakes, and spies
+- **Property-Based Testing**: Generate test cases automatically
+- **Contract Testing**: Verify service integrations
+- **Load Testing**: Verify performance under stress
+- **Chaos Engineering**: Test system resilience
+
+#### 🚀 **Performance Patterns to Explore**
+- **Connection Pooling**: Reuse database/Redis connections
+- **Batch Processing**: Group operations for efficiency
+- **Caching Strategies**: Multi-level caching hierarchies
+- **Async Task Queues**: Background job processing
+- **Sharding**: Distribute data across multiple instances
+
+---
+
 ## Quick Navigation by Task
 
 | I want to… | Go to |

@@ -130,6 +130,7 @@ import redis.asyncio as redis
 from nanoid import generate
 from prometheus_client import Counter
 from sqlalchemy import select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
@@ -324,6 +325,7 @@ async def create_short_url(payload: URLCreate, db: AsyncSession, cache: redis.Re
     assert payload is not None, "payload must not be None"
     assert db is not None, "db must not be None"
     assert cache is not None, "cache must not be None"
+
     if payload.custom_code:
         short_code = payload.custom_code
         existing = await db.execute(select(URL).where(URL.short_code == short_code))
@@ -331,23 +333,35 @@ async def create_short_url(payload: URLCreate, db: AsyncSession, cache: redis.Re
         if existing.scalar_one_or_none():
             raise ValueError(f"Custom code '{short_code}' is already taken")
     else:
-        # Ensure uniqueness for mixed-mode deployments where historic codes may exist.
-        while True:
-            short_code = await _generate_short_code_from_allocator(cache)
-            existing = await db.execute(select(URL).where(URL.short_code == short_code))
-            APP_EDGE_DB_READS_TOTAL.inc()
-            if not existing.scalar_one_or_none():
-                break
+        # ✅ SCALABILITY FIX: Remove DB uniqueness check for generated codes
+        # The distributed counter allocator guarantees uniqueness
+        # 62^8 = 218 trillion possible URLs - more than enough for any application
+        short_code = await _generate_short_code_from_allocator(cache)
 
-    url = URL(short_code=short_code, original_url=str(payload.url))
-    db.add(url)
-    await db.commit()
-    APP_EDGE_DB_WRITES_TOTAL.inc()
-    await db.refresh(url)
-    assert url.id is not None, "url.id must be set after commit"
+    # Optimistic insertion with collision handling (extremely rare case)
+    try:
+        url = URL(short_code=short_code, original_url=str(payload.url))
+        db.add(url)
+        await db.commit()
+        APP_EDGE_DB_WRITES_TOTAL.inc()
+        await db.refresh(url)
+        assert url.id is not None, "url.id must be set after commit"
+    except IntegrityError as exc:
+        await db.rollback()
+        # Extremely rare - allocator collision or race condition
+        if payload.custom_code:
+            raise ValueError(f"Custom code '{short_code}' is already taken") from exc
+        else:
+            # For generated codes, retry once (should never happen with proper allocator)
+            short_code = await _generate_short_code_from_allocator(cache)
+            url = URL(short_code=short_code, original_url=str(payload.url))
+            db.add(url)
+            await db.commit()
+            APP_EDGE_DB_WRITES_TOTAL.inc()
+            await db.refresh(url)
+            assert url.id is not None, "url.id must be set after commit"
 
     await _cache_url(url, cache)
-
     return url
 
 
