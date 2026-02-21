@@ -1,6 +1,7 @@
 use prometheus::{IntCounter, IntCounterVec, Opts, Registry};
 use std::sync::OnceLock;
 
+#[allow(dead_code)]
 pub struct AppMetrics {
     pub redis_ops_total: IntCounter,
     pub db_reads_total: IntCounter,

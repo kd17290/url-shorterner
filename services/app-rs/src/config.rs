@@ -1,6 +1,7 @@
 /// All configuration loaded from environment variables.
 /// Mirrors the Python Settings Pydantic model exactly.
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct Config {
     pub app_name: String,
     pub app_env: String,
