@@ -126,8 +126,9 @@ jobs:
           echo "OK: bench_baselines.json present."
 
   # ── 4. Functional tests ───────────────────────────────────────────────────
-  # Spins up the full docker-compose stack and runs pytest.
-  # Runs after all static checks pass.
+  # Starts only the test-profile services (db-test + redis-test), then runs
+  # pytest directly in a Docker container against those services.
+  # Does NOT start the full 15-container stack — that would time out on free runners.
   test:
     name: "Functional Tests (pytest)"
     runs-on: ubuntu-latest
@@ -140,26 +141,42 @@ jobs:
           cp .env.ci .env
           cp .env.ci .env.test
 
-      - name: Start stack
-        run: docker compose up --build -d
+      - name: Start test dependencies (db-test + redis-test)
+        run: docker compose --profile test up -d db-test redis-test
 
-      - name: Wait for stack healthy
+      - name: Wait for db-test and redis-test to be healthy
         run: |
           for i in $(seq 1 30); do
-            if curl -sf http://localhost:8080/health >/dev/null 2>&1; then
-              echo "Stack is healthy"; break
+            DB_HEALTH=$(docker inspect --format='{{.State.Health.Status}}' urlshortener-db-test 2>/dev/null || echo "starting")
+            REDIS_HEALTH=$(docker inspect --format='{{.State.Health.Status}}' urlshortener-redis-test 2>/dev/null || echo "starting")
+            echo "db-test=$DB_HEALTH  redis-test=$REDIS_HEALTH  ($i/30)"
+            if [ "$DB_HEALTH" = "healthy" ] && [ "$REDIS_HEALTH" = "healthy" ]; then
+              echo "All test dependencies healthy"; break
             fi
-            echo "Waiting for stack... ($i/30)"; sleep 5
+            sleep 5
           done
-          curl -sf http://localhost:8080/health || \
-            (echo "FAIL: Stack never became healthy" && exit 1)
+          DB_HEALTH=$(docker inspect --format='{{.State.Health.Status}}' urlshortener-db-test 2>/dev/null)
+          REDIS_HEALTH=$(docker inspect --format='{{.State.Health.Status}}' urlshortener-redis-test 2>/dev/null)
+          [ "$DB_HEALTH" = "healthy" ] && [ "$REDIS_HEALTH" = "healthy" ] || \
+            (echo "FAIL: Test dependencies never became healthy" && exit 1)
 
-      - name: pytest (docker compose)
-        run: docker compose --profile test up --build --abort-on-container-exit test
+      - name: Run pytest (Docker)
+        run: |
+          docker run --rm \
+            --network urlshortener_urlshortener-net \
+            -e DATABASE_URL=postgresql+asyncpg://test:test@urlshortener-db-test:5432/urlshortener_test \
+            -e REDIS_URL=redis://urlshortener-redis-test:6379/0 \
+            -e APP_ENV=test \
+            -e BASE_URL=http://localhost:8000 \
+            -e SHORT_CODE_LENGTH=7 \
+            -v "$PWD":/work -w /work \
+            python:3.12-slim bash -lc \
+            "pip install --no-cache-dir -r requirements.txt >/dev/null && \
+             pytest tests/ -v --tb=short"
 
       - name: Tear down
         if: always()
-        run: docker compose down -v --remove-orphans
+        run: docker compose --profile test down -v --remove-orphans
 
   # ── 5. Benchmark regression gate ─────────────────────────────────────────
   # Runs the full workflow benchmark (writer + reader + celebrity) and compares
