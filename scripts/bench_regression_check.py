@@ -70,6 +70,8 @@ def check_regression(
     failures: list[str] = []
 
     for scenario_name, baseline_metrics in baselines.items():
+        if scenario_name.startswith("_"):
+            continue  # skip metadata/comment keys
         if scenario_name not in measured:
             failures.append(f"MISSING scenario in output: '{scenario_name}'")
             continue

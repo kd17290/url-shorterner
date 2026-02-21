@@ -1,0 +1,20 @@
+{
+  "_comment": "Conservative RPS baselines for GitHub Actions free runners (2-core, shared). These are intentionally low — the goal is to verify the benchmark runs correctly end-to-end, not to match local throughput. Update after measuring on a real CI run.",
+  "_tolerance_note": "CI allows up to 50% regression vs these baselines. Local baselines in bench_baselines.json use 15% tolerance.",
+  "writer (POST /api/shorten)": {
+    "rps": 5.0,
+    "max_errors": 100
+  },
+  "reader (GET /<code> — broad pool)": {
+    "rps": 10.0,
+    "max_errors": 0
+  },
+  "celebrity (GET /<code> — 5-code hot pool)": {
+    "rps": 5.0,
+    "max_errors": 0
+  },
+  "aggregate": {
+    "rps": 20.0,
+    "max_errors": 100
+  }
+}

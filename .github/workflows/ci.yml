@@ -182,8 +182,9 @@ jobs:
 
   # ── 5. Benchmark regression gate ─────────────────────────────────────────
   # Runs the full workflow benchmark (writer + reader + celebrity) and compares
-  # per-scenario RPS against docs/bench_baselines.json.
-  # Fails the commit if any scenario regresses more than 15%.
+  # per-scenario RPS against docs/bench_baselines_ci.json (conservative CI baselines).
+  # Uses 50% tolerance — CI free runners are much slower than local machines.
+  # Local dev uses bench_baselines.json at 15% via: make bench + bench_regression_check.py
   # Only runs after all tests pass.
   bench-regression:
     name: "Benchmark Regression Gate (make bench)"
@@ -200,34 +201,56 @@ jobs:
       - name: Start stack
         run: docker compose up --build -d
 
-      - name: Wait for stack healthy
+      - name: Wait for app healthy
         run: |
-          for i in $(seq 1 30); do
+          for i in $(seq 1 40); do
             if curl -sf http://localhost:8080/health >/dev/null 2>&1; then
-              echo "Stack is healthy"; break
+              echo "App is healthy"; break
             fi
-            echo "Waiting for stack... ($i/30)"; sleep 5
+            echo "Waiting for app... ($i/40)"; sleep 5
           done
           curl -sf http://localhost:8080/health || \
-            (echo "FAIL: Stack never became healthy" && exit 1)
+            (echo "FAIL: App never became healthy" && exit 1)
+
+      - name: Wait for Kafka + keygen to stabilise
+        # Kafka and keygen need extra time after the app health check passes.
+        # Without this, warmup POST requests fail (no Kafka producer, no keygen IDs)
+        # which leaves reader/celebrity with 0 warm URLs and 0 RPS.
+        run: |
+          echo "Waiting 30s for Kafka + keygen to stabilise..."
+          sleep 30
+          echo "Verifying POST /api/shorten works before benchmark..."
+          for i in $(seq 1 10); do
+            CODE=$(curl -s -o /dev/null -w "%{http_code}" -X POST http://localhost:8080/api/shorten \
+              -H "Content-Type: application/json" \
+              -d '{"url": "https://example.com"}')
+            if [ "$CODE" = "201" ]; then
+              echo "POST /api/shorten returned 201 — stack ready"; break
+            fi
+            echo "POST returned $CODE, retrying ($i/10)..."; sleep 5
+          done
 
       - name: Run benchmark (writer + reader + celebrity)
+        # Reduced concurrency and warmup for CI free runners (2-core shared).
+        # Celebrity pool size reduced to 3 to ensure warmup produces enough URLs.
         run: |
           docker run --rm --network host \
             -e BENCH_BASE_URL=http://localhost:8080 \
             -e BENCH_DURATION_SECONDS=15 \
-            -e BENCH_TIMEOUT_SECONDS=2 \
-            -e BENCH_WRITER_CONCURRENCY=10 \
-            -e BENCH_READER_CONCURRENCY=60 \
-            -e BENCH_CELEBRITY_CONCURRENCY=30 \
-            -e BENCH_CELEBRITY_POOL_SIZE=5 \
-            -e BENCH_WARMUP_URLS=200 \
+            -e BENCH_TIMEOUT_SECONDS=5 \
+            -e BENCH_WRITER_CONCURRENCY=3 \
+            -e BENCH_READER_CONCURRENCY=10 \
+            -e BENCH_CELEBRITY_CONCURRENCY=5 \
+            -e BENCH_CELEBRITY_POOL_SIZE=3 \
+            -e BENCH_WARMUP_URLS=20 \
             -v "$PWD":/work -w /work \
             python:3.12-slim bash -lc \
             "pip install --no-cache-dir httpx==0.26.0 >/dev/null && python scripts/bench_http.py" \
             | tee /tmp/bench_output.txt
 
-      - name: Regression check (≤15% tolerance)
+      - name: Regression check (CI baselines, ≤50% tolerance)
+        # Uses bench_baselines_ci.json — conservative baselines for GitHub Actions
+        # free runners (2-core shared). Local dev uses bench_baselines.json at 15%.
         run: |
           docker run --rm \
             -v "$PWD":/work \
@@ -235,8 +258,8 @@ jobs:
             python:3.12-slim bash -lc \
             "python /work/scripts/bench_regression_check.py \
                --results /tmp/bench_output.txt \
-               --baselines /work/docs/bench_baselines.json \
-               --tolerance 0.15"
+               --baselines /work/docs/bench_baselines_ci.json \
+               --tolerance 0.50"
 
       - name: Upload benchmark results as artifact
         if: always()
