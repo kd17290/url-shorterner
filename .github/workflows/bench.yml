@@ -1,0 +1,153 @@
+name: Benchmark
+
+# Full-stack benchmark regression gate.
+# Runs the complete 15-container stack (app × 3, nginx, postgres, redis,
+# kafka, zookeeper, clickhouse, keygen, ingestion, cache-warmer, prometheus, grafana).
+#
+# NOT part of the push/PR gate — this workflow is intentionally separate because:
+#   1. The full stack takes 3–8 min to start on any runner.
+#   2. Kafka + keygen startup is non-deterministic (timing varies by runner load).
+#   3. RPS numbers depend on runner CPU — shared runners give inconsistent results.
+#
+# Triggers:
+#   - Scheduled: nightly at 02:00 UTC on main branch
+#   - Manual: workflow_dispatch (run from GitHub Actions UI or gh CLI)
+#
+# Local equivalent: make bench
+
+on:
+  schedule:
+    - cron: "0 2 * * *"   # 02:00 UTC every night, main branch only
+  workflow_dispatch:
+    inputs:
+      tolerance:
+        description: "RPS regression tolerance (0.50 = 50%)"
+        required: false
+        default: "0.50"
+      duration:
+        description: "Benchmark duration in seconds per scenario"
+        required: false
+        default: "30"
+
+# Only one benchmark run at a time — no point queuing multiple.
+concurrency:
+  group: bench
+  cancel-in-progress: true
+
+jobs:
+  bench-regression:
+    name: "Benchmark Regression Gate"
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prepare environment files
+        run: |
+          cp .env.ci .env
+          cp .env.ci .env.test
+
+      # Pull all base images in parallel to warm the layer cache before build.
+      # Without this, a cold runner spends 3–5 min just pulling images during build.
+      - name: Pull base images (parallel, warm layer cache)
+        run: |
+          docker pull python:3.12-slim &
+          docker pull postgres:16-alpine &
+          docker pull redis:7-alpine &
+          docker pull confluentinc/cp-kafka:7.6.0 &
+          docker pull confluentinc/cp-zookeeper:7.6.0 &
+          docker pull clickhouse/clickhouse-server:24.3 &
+          docker pull nginx:alpine &
+          wait
+          echo "All base images pulled"
+
+      - name: Build application images
+        run: docker compose build
+
+      - name: Start full stack
+        run: docker compose up -d
+
+      # The app health endpoint only checks DB + Redis.
+      # We wait up to 5 min for it to pass.
+      - name: Wait for app healthy (up to 5 min)
+        run: |
+          for i in $(seq 1 60); do
+            if curl -sf http://localhost:8080/health >/dev/null 2>&1; then
+              echo "App healthy after $((i*5))s"; break
+            fi
+            echo "  waiting... ($i/60)"; sleep 5
+          done
+          if ! curl -sf http://localhost:8080/health >/dev/null 2>&1; then
+            echo "FAIL: App never became healthy after 5 min"
+            docker compose logs --tail=100
+            exit 1
+          fi
+
+      # Kafka broker + keygen service need extra time after the app health check.
+      # We verify POST /api/shorten returns 201 before starting the benchmark.
+      # If it never does, we log a warning but continue — the benchmark will
+      # record low writer RPS and the regression check will catch it.
+      - name: Wait for Kafka + keygen to stabilise (up to 3 min)
+        run: |
+          echo "Sleeping 30s for Kafka/keygen initial startup..."
+          sleep 30
+          echo "Probing POST /api/shorten..."
+          for i in $(seq 1 24); do
+            CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+              -X POST http://localhost:8080/api/shorten \
+              -H "Content-Type: application/json" \
+              -d '{"url": "https://example.com"}')
+            if [ "$CODE" = "201" ]; then
+              echo "Stack fully ready after $((30 + i*5))s (POST returned 201)"; break
+            fi
+            echo "  POST returned $CODE ($i/24)..."; sleep 5
+          done
+          # Log final status but do NOT exit 1 — let the benchmark run and
+          # the regression check decide if writer RPS is acceptable.
+          FINAL=$(curl -s -o /dev/null -w "%{http_code}" \
+            -X POST http://localhost:8080/api/shorten \
+            -H "Content-Type: application/json" \
+            -d '{"url": "https://example.com"}')
+          echo "Final POST status: $FINAL"
+
+      - name: Run benchmark (writer + reader + celebrity)
+        run: |
+          DURATION="${{ github.event.inputs.duration || '30' }}"
+          docker run --rm --network host \
+            -e BENCH_BASE_URL=http://localhost:8080 \
+            -e BENCH_DURATION_SECONDS="$DURATION" \
+            -e BENCH_TIMEOUT_SECONDS=5 \
+            -e BENCH_WRITER_CONCURRENCY=5 \
+            -e BENCH_READER_CONCURRENCY=20 \
+            -e BENCH_CELEBRITY_CONCURRENCY=10 \
+            -e BENCH_CELEBRITY_POOL_SIZE=3 \
+            -e BENCH_WARMUP_URLS=30 \
+            -v "$PWD":/work -w /work \
+            python:3.12-slim bash -lc \
+            "pip install --no-cache-dir httpx==0.26.0 >/dev/null && python scripts/bench_http.py" \
+            | tee /tmp/bench_output.txt
+
+      - name: Regression check (CI baselines, 50% tolerance)
+        run: |
+          TOLERANCE="${{ github.event.inputs.tolerance || '0.50' }}"
+          docker run --rm \
+            -v "$PWD":/work \
+            -v /tmp/bench_output.txt:/tmp/bench_output.txt:ro \
+            python:3.12-slim bash -lc \
+            "python /work/scripts/bench_regression_check.py \
+               --results /tmp/bench_output.txt \
+               --baselines /work/docs/bench_baselines_ci.json \
+               --tolerance $TOLERANCE"
+
+      - name: Upload benchmark results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bench-results-${{ github.sha }}-${{ github.run_id }}
+          path: /tmp/bench_output.txt
+          retention-days: 90
+
+      - name: Tear down
+        if: always()
+        run: docker compose down -v --remove-orphans

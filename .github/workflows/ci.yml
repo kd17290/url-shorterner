@@ -1,16 +1,16 @@
 name: CI
 
-# Runs on every push and every pull request.
-# Job execution order:
+# Fast deterministic gate — runs on every push and pull request.
+# All 4 jobs must pass for a commit to be considered green.
 #
+# Job order:
 #   lint ──┐
-#           ├──► standards-check ──┐
-#   typecheck ──┘                   ├──► test ──► bench-regression
-#                                   │
-#   (standards-check runs in        │
-#    parallel with typecheck)       │
+#           ├──► standards-check ──► test
+#   typecheck ──┘
 #
-# A commit is blocked if ANY job fails.
+# Benchmark regression is NOT here — it runs the full 15-container stack
+# which is too slow and resource-intensive for shared CI runners.
+# See: .github/workflows/bench.yml  (scheduled nightly + manual dispatch)
 
 on:
   push:
@@ -18,12 +18,19 @@ on:
   pull_request:
     branches: ["**"]
 
+# Cancel in-progress runs for the same branch/PR when a new commit is pushed.
+# Prevents queued stale runs from consuming runner minutes.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   # ── 1. Formatting ─────────────────────────────────────────────────────────
   # Checks black + isort. Must pass before any other job proceeds.
   lint:
     name: "Format Check (black + isort)"
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
 
@@ -40,6 +47,7 @@ jobs:
   typecheck:
     name: "Type Check (pyright)"
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
 
@@ -62,6 +70,7 @@ jobs:
   standards-check:
     name: "Coding Standards (ruff)"
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     needs: [lint, typecheck]
     steps:
       - uses: actions/checkout@v4
@@ -132,6 +141,7 @@ jobs:
   test:
     name: "Functional Tests (pytest)"
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     needs: [standards-check]
     steps:
       - uses: actions/checkout@v4
@@ -180,110 +190,3 @@ jobs:
         if: always()
         run: docker compose --profile test down -v --remove-orphans
 
-  # ── 5. Benchmark regression gate ─────────────────────────────────────────
-  # Runs the full workflow benchmark (writer + reader + celebrity) and compares
-  # per-scenario RPS against docs/bench_baselines_ci.json (conservative CI baselines).
-  # Uses 50% tolerance — CI free runners are much slower than local machines.
-  # Local dev uses bench_baselines.json at 15% via: make bench + bench_regression_check.py
-  # Only runs after all tests pass.
-  bench-regression:
-    name: "Benchmark Regression Gate (make bench)"
-    runs-on: ubuntu-latest
-    needs: [test]
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Prepare environment files
-        run: |
-          cp .env.ci .env
-          cp .env.ci .env.test
-
-      - name: Pull base images (warm up layer cache)
-        run: |
-          docker pull python:3.12-slim &
-          docker pull postgres:16-alpine &
-          docker pull redis:7-alpine &
-          docker pull confluentinc/cp-kafka:7.6.0 &
-          docker pull confluentinc/cp-zookeeper:7.6.0 &
-          docker pull clickhouse/clickhouse-server:24.3 &
-          docker pull nginx:alpine &
-          wait
-          echo "All base images pulled"
-
-      - name: Build images
-        run: docker compose build
-
-      - name: Start stack
-        run: docker compose up -d
-
-      - name: Wait for app healthy
-        run: |
-          for i in $(seq 1 60); do
-            if curl -sf http://localhost:8080/health >/dev/null 2>&1; then
-              echo "App is healthy after $((i*5))s"; break
-            fi
-            echo "Waiting for app... ($i/60)"; sleep 5
-          done
-          curl -sf http://localhost:8080/health || \
-            (echo "FAIL: App never became healthy after 5 min" && docker compose logs --tail=50 && exit 1)
-
-      - name: Wait for Kafka + keygen to stabilise
-        # Kafka and keygen need extra time after the app health check passes.
-        # Without this, warmup POST requests fail (no Kafka producer, no keygen IDs)
-        # which leaves reader/celebrity with 0 warm URLs and 0 RPS.
-        run: |
-          echo "Waiting 30s for Kafka + keygen to stabilise..."
-          sleep 30
-          echo "Verifying POST /api/shorten works before benchmark..."
-          for i in $(seq 1 10); do
-            CODE=$(curl -s -o /dev/null -w "%{http_code}" -X POST http://localhost:8080/api/shorten \
-              -H "Content-Type: application/json" \
-              -d '{"url": "https://example.com"}')
-            if [ "$CODE" = "201" ]; then
-              echo "POST /api/shorten returned 201 — stack ready"; break
-            fi
-            echo "POST returned $CODE, retrying ($i/10)..."; sleep 5
-          done
-
-      - name: Run benchmark (writer + reader + celebrity)
-        # Reduced concurrency and warmup for CI free runners (2-core shared).
-        # Celebrity pool size reduced to 3 to ensure warmup produces enough URLs.
-        run: |
-          docker run --rm --network host \
-            -e BENCH_BASE_URL=http://localhost:8080 \
-            -e BENCH_DURATION_SECONDS=15 \
-            -e BENCH_TIMEOUT_SECONDS=5 \
-            -e BENCH_WRITER_CONCURRENCY=3 \
-            -e BENCH_READER_CONCURRENCY=10 \
-            -e BENCH_CELEBRITY_CONCURRENCY=5 \
-            -e BENCH_CELEBRITY_POOL_SIZE=3 \
-            -e BENCH_WARMUP_URLS=20 \
-            -v "$PWD":/work -w /work \
-            python:3.12-slim bash -lc \
-            "pip install --no-cache-dir httpx==0.26.0 >/dev/null && python scripts/bench_http.py" \
-            | tee /tmp/bench_output.txt
-
-      - name: Regression check (CI baselines, ≤50% tolerance)
-        # Uses bench_baselines_ci.json — conservative baselines for GitHub Actions
-        # free runners (2-core shared). Local dev uses bench_baselines.json at 15%.
-        run: |
-          docker run --rm \
-            -v "$PWD":/work \
-            -v /tmp/bench_output.txt:/tmp/bench_output.txt:ro \
-            python:3.12-slim bash -lc \
-            "python /work/scripts/bench_regression_check.py \
-               --results /tmp/bench_output.txt \
-               --baselines /work/docs/bench_baselines_ci.json \
-               --tolerance 0.50"
-
-      - name: Upload benchmark results as artifact
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: bench-results-${{ github.sha }}
-          path: /tmp/bench_output.txt
-          retention-days: 30
-
-      - name: Tear down
-        if: always()
-        run: docker compose down -v --remove-orphans
