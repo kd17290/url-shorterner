@@ -6,36 +6,36 @@ use axum::{
 };
 use std::sync::Arc;
 
-use crate::{
-    cache, kafka,
-    models::{ClickEvent, HealthResponse, ShortenRequest, Url, UrlResponse},
-    state::AppState,
-};
+use crate::cache;
+use crate::enums::HealthStatus;
+use crate::kafka;
+use crate::models::{ClickEvent, HealthResponse, ShortenRequest, Url, UrlResponse};
+use crate::state::AppState;
 
 // ── Health ────────────────────────────────────────────────────────────────────
 
 pub async fn health(State(state): State<Arc<AppState>>) -> Json<HealthResponse> {
     let db_status = match sqlx::query("SELECT 1").execute(&state.db).await {
-        Ok(_) => "healthy".to_string(),
-        Err(e) => format!("unhealthy: {e}"),
+        Ok(_) => HealthStatus::Healthy,
+        Err(_) => HealthStatus::Unhealthy,
     };
 
     let cache_status = {
         let mut conn = state.redis_write.lock().await;
         match cache::ping(&mut conn).await {
-            Ok(_) => "healthy".to_string(),
-            Err(e) => format!("unhealthy: {e}"),
+            Ok(_) => HealthStatus::Healthy,
+            Err(_) => HealthStatus::Unhealthy,
         }
     };
 
-    let status = if db_status == "healthy" && cache_status == "healthy" {
-        "healthy"
+    let overall_status = if db_status == HealthStatus::Healthy && cache_status == HealthStatus::Healthy {
+        HealthStatus::Healthy
     } else {
-        "unhealthy"
+        HealthStatus::Unhealthy
     };
 
     Json(HealthResponse {
-        status: status.to_string(),
+        status: overall_status,
         database: db_status,
         cache: cache_status,
     })

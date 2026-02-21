@@ -1,6 +1,7 @@
 mod cache;
 mod config;
 mod db;
+mod enums;
 mod handlers;
 mod kafka;
 mod keygen;

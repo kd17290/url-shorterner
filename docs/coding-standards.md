@@ -88,10 +88,42 @@ reportUnusedImport = true
 reportUnusedVariable = true
 ```
 
-## 3. Identity Checks (PEP 8)
+## 3. Identity Checks (PEP 8) & Enums
 
 - Use `is None` / `is not None` instead of `== None` / `!= None`.
 - Use `is` for enum comparisons.
+
+### Enum Usage for Status Fields
+
+- **Never** use string literals for status fields (`"healthy"`, `"unhealthy"`, `"pending"`, `"failed"`).
+- **Always** define enums with explicit values and use them throughout the codebase.
+- Enums provide type safety, IDE autocomplete, and prevent typos.
+
+```python
+# BAD — string literals
+status = "healthy"
+if status == "healthy":  # typo-prone, no type safety
+
+# GOOD — enum with explicit values
+from enum import StrEnum
+
+class HealthStatus(StrEnum):
+    HEALTHY = "healthy"
+    UNHEALTHY = "unhealthy"
+
+class ServiceStatus(StrEnum):
+    PENDING = "pending"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+status = HealthStatus.HEALTHY
+if status is HealthStatus.HEALTHY:  # type-safe, typo-proof
+```
+
+- Use `StrEnum` (Python 3.11+) for enums that serialize to JSON.
+- Add `@classmethod def from_str(cls, value: str) -> Self:` for safe parsing from external sources.
+- Include `__all__` exports for all public enums.
 
 ```python
 # BAD

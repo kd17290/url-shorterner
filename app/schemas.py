@@ -73,6 +73,8 @@ import datetime
 import validators
 from pydantic import BaseModel, Field, field_validator
 
+from app.enums import HealthStatus
+
 __all__ = [
     "URLCreate",
     "URLResponse",
@@ -130,9 +132,9 @@ class URLStats(BaseModel):
 
 
 class HealthResponse(BaseModel):
-    status: str
-    database: str
-    cache: str
+    status: HealthStatus
+    database: HealthStatus
+    cache: HealthStatus
 
 
 class ClickEvent(BaseModel):

@@ -5,6 +5,7 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
 from app.config import get_settings
+from app.enums import HealthStatus
 
 __all__ = ["app"]
 
@@ -33,6 +34,12 @@ class AllocateResponse(BaseModel):
     end: int
 
 
+class HealthResponse(BaseModel):
+    status: HealthStatus
+    primary: HealthStatus
+    secondary: HealthStatus
+
+
 @app.on_event("startup")
 async def startup() -> None:
     app.state.redis_primary = redis.from_url(
@@ -56,23 +63,22 @@ async def shutdown() -> None:
 
 
 @app.get("/health")
-async def health() -> dict[str, str]:
-    statuses: dict[str, str] = {}
+async def health() -> HealthResponse:
+    primary_status = HealthStatus.HEALTHY
+    secondary_status = HealthStatus.HEALTHY
+    
     try:
         await app.state.redis_primary.ping()
-        statuses["primary"] = "healthy"
-    except Exception as exc:  # pragma: no cover - defensive runtime guard
-        statuses["primary"] = f"unhealthy: {exc}"
+    except Exception:  # pragma: no cover - defensive runtime guard
+        primary_status = HealthStatus.UNHEALTHY
 
     try:
         await app.state.redis_secondary.ping()
-        statuses["secondary"] = "healthy"
-    except Exception as exc:  # pragma: no cover - defensive runtime guard
-        statuses["secondary"] = f"unhealthy: {exc}"
+    except Exception:  # pragma: no cover - defensive runtime guard
+        secondary_status = HealthStatus.UNHEALTHY
 
-    if statuses["primary"].startswith("unhealthy") and statuses["secondary"].startswith("unhealthy"):
-        raise HTTPException(status_code=503, detail="both keygen redis backends unavailable")
-    return {"status": "healthy", **statuses}
+    overall_status = HealthStatus.HEALTHY if primary_status is HealthStatus.HEALTHY or secondary_status is HealthStatus.HEALTHY else HealthStatus.UNHEALTHY
+    return HealthResponse(status=overall_status, primary=primary_status, secondary=secondary_status)
 
 
 @app.post("/allocate", response_model=AllocateResponse)

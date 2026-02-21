@@ -1,4 +1,5 @@
 use chrono::{DateTime, Utc};
+use crate::enums::HealthStatus;
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 
@@ -47,11 +48,11 @@ impl UrlResponse {
 }
 
 /// Health check response.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct HealthResponse {
-    pub status: String,
-    pub database: String,
-    pub cache: String,
+    pub status: HealthStatus,
+    pub database: HealthStatus,
+    pub cache: HealthStatus,
 }
 
 /// Kafka click event payload — matches Python ClickEvent schema.

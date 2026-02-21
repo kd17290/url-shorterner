@@ -105,6 +105,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app import service
 from app.config import get_settings
 from app.database import get_db
+from app.enums import HealthStatus
 from app.redis import get_redis, get_redis_read
 from app.schemas import HealthResponse, URLCreate, URLResponse, URLStats
 
@@ -120,20 +121,20 @@ async def health_check(
     db: AsyncSession = Depends(get_db),
     cache: redis.Redis = Depends(get_redis),
 ) -> HealthResponse:
-    db_status = "healthy"
-    cache_status = "healthy"
+    db_status = HealthStatus.HEALTHY
+    cache_status = HealthStatus.HEALTHY
 
     try:
         await db.execute(text("SELECT 1"))
     except Exception:
-        db_status = "unhealthy"
+        db_status = HealthStatus.UNHEALTHY
 
     try:
         await cache.ping()
     except Exception:
-        cache_status = "unhealthy"
+        cache_status = HealthStatus.UNHEALTHY
 
-    status = "healthy" if db_status == "healthy" and cache_status == "healthy" else "unhealthy"
+    status = HealthStatus.HEALTHY if db_status is HealthStatus.HEALTHY and cache_status is HealthStatus.HEALTHY else HealthStatus.UNHEALTHY
     return HealthResponse(status=status, database=db_status, cache=cache_status)
 
 

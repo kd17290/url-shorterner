@@ -12,6 +12,24 @@ use tokio::sync::Mutex;
 use tower_http::cors::CorsLayer;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
+// ── Enums ─────────────────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum HealthStatus {
+    Healthy,
+    Unhealthy,
+}
+
+impl HealthStatus {
+    pub fn from_str(s: &str) -> Self {
+        match s {
+            "healthy" => Self::Healthy,
+            _ => Self::Unhealthy,
+        }
+    }
+}
+
 // ── Config ────────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone)]
@@ -55,9 +73,9 @@ struct AllocateResponse {
 
 #[derive(Debug, Serialize)]
 struct HealthResponse {
-    status: String,
-    primary: String,
-    secondary: String,
+    status: HealthStatus,
+    primary: HealthStatus,
+    secondary: HealthStatus,
 }
 
 // ── State ─────────────────────────────────────────────────────────────────────
@@ -76,24 +94,24 @@ async fn health(State(state): State<Arc<AppState>>) -> Json<HealthResponse> {
     let primary_status = {
         let mut c = state.primary.lock().await;
         match c.get::<&str, Option<String>>("__ping__").await {
-            Ok(_) => "healthy".to_string(),
-            Err(e) => format!("unhealthy: {e}"),
+            Ok(_) => HealthStatus::Healthy,
+            Err(_) => HealthStatus::Unhealthy,
         }
     };
     let secondary_status = {
         let mut c = state.secondary.lock().await;
         match c.get::<&str, Option<String>>("__ping__").await {
-            Ok(_) => "healthy".to_string(),
-            Err(e) => format!("unhealthy: {e}"),
+            Ok(_) => HealthStatus::Healthy,
+            Err(_) => HealthStatus::Unhealthy,
         }
     };
-    let status = if primary_status == "healthy" || secondary_status == "healthy" {
-        "healthy"
+    let overall_status = if primary_status == HealthStatus::Healthy || secondary_status == HealthStatus::Healthy {
+        HealthStatus::Healthy
     } else {
-        "unhealthy"
+        HealthStatus::Unhealthy
     };
     Json(HealthResponse {
-        status: status.to_string(),
+        status: overall_status,
         primary: primary_status,
         secondary: secondary_status,
     })
