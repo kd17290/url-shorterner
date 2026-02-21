@@ -3,8 +3,8 @@
 This module provides the core service functions for URL creation, lookup,
 click tracking, and caching with proper error handling and atomic operations.
 
-Flow Diagram — URL Creation
-===========================
+Flow Diagram — URL Creation (Scalable)
+===================================
 ::
     ┌─────────────┐
     │  POST /api/ │
@@ -23,14 +23,22 @@ Flow Diagram — URL Creation
     └──────┬──────┘
            ▼
     ┌─────────────┐
-    │ Check for   │
-    │ uniqueness  │
+    │ Custom code │
+    │ DB check?   │
     │ (PostgreSQL)│
     └──────┬──────┘
-           ▼
+    NO?    │ YES
+    ▼      ▼
+┌─────────┐ ┌─────────┐
+│Generated│ │ Custom  │
+│code     │ │code DB  │
+│(no DB)  │ │check    │
+└────┬───┘ └────┬───┘
+     ▼           ▼
     ┌─────────────┐
     │ Create URL  │
     │ record      │
+    │ (optimistic)│
     └──────┬──────┘
            ▼
     ┌─────────────┐
@@ -201,7 +209,7 @@ async def _allocate_id_block(cache: redis.Redis) -> None:
         async with httpx.AsyncClient(timeout=2.0) as client:
             response = await client.post(
                 f"{settings.KEYGEN_SERVICE_URL}/allocate",
-                json={"size": settings.ID_BLOCK_SIZE},
+                json={"size": settings.ID_BLOCK_SIZE, "stack": "python"},
             )
         response.raise_for_status()
         payload = response.json()
@@ -209,7 +217,9 @@ async def _allocate_id_block(cache: redis.Redis) -> None:
         end_value = int(payload["end"])
     except Exception:
         # Fallback for local/test mode where external keygen service may not run.
-        end_value = await cache.incrby(settings.ID_ALLOCATOR_KEY, settings.ID_BLOCK_SIZE)
+        # Use stack-specific key even in fallback
+        allocator_key = f"{settings.ID_ALLOCATOR_KEY}:python"
+        end_value = await cache.incrby(allocator_key, settings.ID_BLOCK_SIZE)
         start_value = end_value - settings.ID_BLOCK_SIZE + 1
 
     _id_block_next = start_value

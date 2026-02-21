@@ -1,3 +1,121 @@
+//! HTTP handlers for the Rust URL shortener service.
+//!
+//! This module provides all HTTP endpoints with proper error handling,
+//! response serialization, and performance optimizations.
+//!
+//! # Architecture Overview
+//!
+//! ```text
+//! Request → Handler → Service Layer → Data Layer → Response
+//!    ↓         ↓           ↓            ↓         ↓
+//! HTTP    Axum     Business    Database/   JSON/HTTP
+//! Layer   Router    Logic       Redis      Response
+//! ```
+//!
+//! # Flow Diagrams
+//!
+//! ## URL Creation (Scalable)
+//! ```text
+//! ┌─────────────┐
+//! │ POST /api/ │
+//! │ shorten     │
+//! └──────┬──────┘
+//!        ▼
+//! ┌─────────────┐
+//! │ Validate URL│
+//! │ (Serde)     │
+//! └──────┬──────┘
+//!        ▼
+//! ┌─────────────┐
+//! │ Generate or │
+//! │ use custom   │
+//! │ short code   │
+//! └──────┬──────┘
+//!        ▼
+//! ┌─────────────┐
+//! │ Custom code │
+//! │ DB check?   │
+//! │ (PostgreSQL)│
+//! └──────┬──────┘
+//! NO?    │ YES
+//! ▼      ▼
+//! ┌─────────┐ ┌─────────┐
+//! │Generated│ │ Custom  │
+//! │code     │ │code DB  │
+//! │(no DB)  │ │check    │
+//! └────┬───┘ └────┬───┘
+//!      ▼           ▼
+//! ┌─────────────┐
+//! │ Create URL  │
+//! │ record      │
+//! │ (optimistic)│
+//! └──────┬──────┘
+//!        ▼
+//! ┌─────────────┐
+//! │ Cache in    │
+//! │ Redis (TTL) │
+//! └──────┬──────┘
+//!        ▼
+//! ┌─────────────┐
+//! │ Return URL  │
+//! │ response    │
+//! └─────────────┘
+//! ```
+//!
+//! ## URL Lookup & Redirect
+//! ```text
+//! ┌─────────────┐
+//! │  GET /:code  │
+//! └──────┬──────┘
+//!        ▼
+//! ┌─────────────┐
+//! │ Check Redis │
+//! │ cache       │
+//! └──────┬──────┘
+//! HIT?  │
+//! ┌─────┴─────┐
+//! │ NO         │ YES
+//! ▼            ▼
+//! ┌─────────┐ ┌─────────┐
+//! │Database │ │ Redirect│
+//! │lookup   │ │307      │
+//! └────┬───┘ └────┬───┘
+//!      ▼           ▼
+//! ┌─────────┐ ┌─────────────┐
+//! │ Cache   │ │ Return      │
+//! │populate │ │ redirect    │
+//! └────┬───┘ └─────────────┘
+//!      ▼
+//! ┌─────────────┐
+//! │ Background  │
+//! │ click track │
+//! │ task spawn  │
+//! └─────────────┘
+//! ```
+//!
+//! ## Health Check
+//! ```text
+//! ┌─────────────┐
+//! │ GET /health │
+//! └──────┬──────┘
+//!        ▼
+//! ┌─────────────┐
+//! │ Check DB    │
+//! │ (SELECT 1)  │
+//! └──────┬──────┘
+//!        ▼
+//! ┌─────────────┐
+//! │ Check Redis │
+//! │ (PING)     │
+//! └──────┬──────┘
+//!        ▼
+//! ┌─────────────┐
+//! │ Return     │
+//! │ HealthStatus│
+//! │ (enum)     │
+//! └─────────────┘
+//! ```
+
 use axum::{
     extract::{Path, State},
     http::StatusCode,

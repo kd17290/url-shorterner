@@ -13,25 +13,30 @@ settings = get_settings()
 app = FastAPI(title="keygen-service", version="1.0.0")
 
 
-async def _allocate_from_with_fallback(size: int) -> tuple[int, int]:
+async def _allocate_from_with_fallback(size: int, stack: str) -> tuple[int, int]:
     redis_clients = [app.state.redis_primary, app.state.redis_secondary]
+    # Use stack-specific allocator key to avoid collisions between Python and Rust
+    allocator_key = f"{settings.ID_ALLOCATOR_KEY}:{stack}"
+    
     for client in redis_clients:
         try:
-            end_value = await client.incrby(settings.ID_ALLOCATOR_KEY, size)
+            end_value = await client.incrby(allocator_key, size)
             start_value = end_value - size + 1
             return start_value, end_value
         except Exception:
             continue
-    raise HTTPException(status_code=503, detail="key allocation backends unavailable")
+    raise HTTPException(status_code=503, detail=f"key allocation backends unavailable for stack: {stack}")
 
 
 class AllocateRequest(BaseModel):
     size: int = settings.ID_BLOCK_SIZE
+    stack: str = "python"  # "python" or "rust"
 
 
 class AllocateResponse(BaseModel):
     start: int
     end: int
+    stack: str
 
 
 class HealthResponse(BaseModel):
@@ -89,6 +94,9 @@ async def health() -> HealthResponse:
 async def allocate(req: AllocateRequest) -> AllocateResponse:
     if req.size <= 0:
         raise HTTPException(status_code=400, detail="size must be > 0")
+    
+    if req.stack not in ["python", "rust"]:
+        raise HTTPException(status_code=400, detail="stack must be 'python' or 'rust'")
 
-    start_value, end_value = await _allocate_from_with_fallback(req.size)
-    return AllocateResponse(start=start_value, end=end_value)
+    start_value, end_value = await _allocate_from_with_fallback(req.size, req.stack)
+    return AllocateResponse(start=start_value, end=end_value, stack=req.stack)

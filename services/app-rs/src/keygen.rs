@@ -33,7 +33,10 @@ impl KeygenClient {
         let resp = self
             .http
             .post(&url)
-            .json(&serde_json::json!({ "size": self.id_block_size }))
+            .json(&serde_json::json!({ 
+                "size": self.id_block_size,
+                "stack": "rust" 
+            }))
             .send()
             .await?
             .error_for_status()?

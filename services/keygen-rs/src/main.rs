@@ -63,12 +63,14 @@ impl Config {
 #[derive(Debug, Deserialize)]
 struct AllocateRequest {
     size: Option<i64>,
+    stack: Option<String>, // "python" or "rust"
 }
 
 #[derive(Debug, Serialize)]
 struct AllocateResponse {
     start: i64,
     end: i64,
+    stack: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -122,6 +124,8 @@ async fn allocate(
     Json(req): Json<AllocateRequest>,
 ) -> Response {
     let size = req.size.unwrap_or(state.config.id_block_size);
+    let stack = req.stack.unwrap_or_else(|| "rust".to_string());
+    
     if size <= 0 {
         return (
             StatusCode::BAD_REQUEST,
@@ -129,24 +133,35 @@ async fn allocate(
         )
             .into_response();
     }
+    
+    if !["python", "rust"].contains(&stack.as_str()) {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "detail": "stack must be 'python' or 'rust'" })),
+        )
+            .into_response();
+    }
+
+    // Use stack-specific allocator key
+    let allocator_key = format!("{}:{}", state.config.id_allocator_key, stack);
 
     // Try primary first, then secondary.
     let result = {
         let mut c = state.primary.lock().await;
-        try_allocate(&mut c, &state.config.id_allocator_key, size).await
+        try_allocate(&mut c, &allocator_key, size).await
     };
     let (start, end) = match result {
         Ok(r) => r,
         Err(_) => {
             let mut c = state.secondary.lock().await;
-            match try_allocate(&mut c, &state.config.id_allocator_key, size).await {
+            match try_allocate(&mut c, &allocator_key, size).await {
                 Ok(r) => r,
                 Err(e) => {
-                    tracing::error!("both keygen backends failed: {e}");
+                    tracing::error!("both keygen backends failed for stack {}: {}", stack, e);
                     return (
                         StatusCode::SERVICE_UNAVAILABLE,
                         Json(
-                            serde_json::json!({ "detail": "key allocation backends unavailable" }),
+                            serde_json::json!({ "detail": format!("key allocation backends unavailable for stack: {}", stack) }),
                         ),
                     )
                         .into_response();
@@ -155,7 +170,7 @@ async fn allocate(
         }
     };
 
-    Json(AllocateResponse { start, end }).into_response()
+    Json(AllocateResponse { start, end, stack }).into_response()
 }
 
 async fn try_allocate(
