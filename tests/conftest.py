@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from app.config import get_settings
 from app.database import Base, get_db
 from app.main import app
-from app.redis import get_redis
+from app.redis import get_redis, get_redis_read
 
 settings = get_settings()
 
@@ -69,8 +69,12 @@ async def client(db_session: AsyncSession, redis_client: redis.Redis) -> AsyncGe
     async def override_get_redis() -> redis.Redis:
         return redis_client
 
+    async def override_get_redis_read() -> redis.Redis:
+        return redis_client  # tests use a single Redis; no separate replica needed
+
     app.dependency_overrides[get_db] = override_get_db
     app.dependency_overrides[get_redis] = override_get_redis
+    app.dependency_overrides[get_redis_read] = override_get_redis_read
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
