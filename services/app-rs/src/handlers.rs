@@ -1,0 +1,265 @@
+use axum::{
+    extract::{Path, State},
+    http::StatusCode,
+    response::{IntoResponse, Redirect, Response},
+    Json,
+};
+use std::sync::Arc;
+
+use crate::{
+    cache, kafka,
+    models::{ClickEvent, HealthResponse, ShortenRequest, Url, UrlResponse},
+    state::AppState,
+};
+
+// ── Health ────────────────────────────────────────────────────────────────────
+
+pub async fn health(State(state): State<Arc<AppState>>) -> Json<HealthResponse> {
+    let db_status = match sqlx::query("SELECT 1")
+        .execute(&state.db)
+        .await
+    {
+        Ok(_) => "healthy".to_string(),
+        Err(e) => format!("unhealthy: {e}"),
+    };
+
+    let cache_status = {
+        let mut conn = state.redis_write.lock().await;
+        match cache::ping(&mut conn).await {
+            Ok(_) => "healthy".to_string(),
+            Err(e) => format!("unhealthy: {e}"),
+        }
+    };
+
+    let status = if db_status == "healthy" && cache_status == "healthy" {
+        "healthy"
+    } else {
+        "unhealthy"
+    };
+
+    Json(HealthResponse {
+        status: status.to_string(),
+        database: db_status,
+        cache: cache_status,
+    })
+}
+
+// ── Metrics ───────────────────────────────────────────────────────────────────
+
+pub async fn metrics(State(state): State<Arc<AppState>>) -> String {
+    crate::metrics::gather(&state.registry)
+}
+
+// ── POST /api/shorten ─────────────────────────────────────────────────────────
+
+pub async fn shorten(
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<ShortenRequest>,
+) -> Response {
+    let short_code = if let Some(ref custom) = payload.custom_code {
+        // Check uniqueness of custom code.
+        let existing: Option<Url> = sqlx::query_as(
+            "SELECT id, short_code, original_url, clicks, created_at, updated_at FROM urls WHERE short_code = $1",
+        )
+        .bind(custom)
+        .fetch_optional(&state.db)
+        .await
+        .unwrap_or(None);
+
+        if existing.is_some() {
+            return (
+                StatusCode::CONFLICT,
+                Json(serde_json::json!({ "detail": format!("Custom code '{}' is already taken", custom) })),
+            )
+                .into_response();
+        }
+        custom.clone()
+    } else {
+        // Allocate from keygen block.
+        let id = match state.keygen.next_id().await {
+            Ok(id) => id,
+            Err(e) => {
+                tracing::error!("keygen error: {e}");
+                return StatusCode::SERVICE_UNAVAILABLE.into_response();
+            }
+        };
+        match crate::keygen::encode_id(id, state.config.short_code_length) {
+            Ok(code) => code,
+            Err(e) => {
+                tracing::error!("encode_id error: {e}");
+                return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+            }
+        }
+    };
+
+    let url: Url = match sqlx::query_as(
+        r#"
+        INSERT INTO urls (short_code, original_url, clicks)
+        VALUES ($1, $2, 0)
+        RETURNING id, short_code, original_url, clicks, created_at, updated_at
+        "#,
+    )
+    .bind(&short_code)
+    .bind(&payload.url)
+    .fetch_one(&state.db)
+    .await
+    {
+        Ok(u) => u,
+        Err(e) => {
+            tracing::error!("db insert error: {e}");
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
+    };
+
+    state.metrics.db_writes_total.inc();
+
+    // Cache the new URL.
+    {
+        let mut write_conn = state.redis_write.lock().await;
+        if let Err(e) = cache::set_url(&mut write_conn, &url).await {
+            tracing::warn!("cache set failed: {e}");
+        }
+    }
+    state.metrics.redis_ops_total.inc();
+
+    let resp = UrlResponse::from_url(&url, &state.config.base_url);
+    (StatusCode::CREATED, Json(resp)).into_response()
+}
+
+// ── GET /:short_code (redirect) ───────────────────────────────────────────────
+
+pub async fn redirect(
+    State(state): State<Arc<AppState>>,
+    Path(short_code): Path<String>,
+) -> Response {
+    // 1. Try read replica cache first.
+    let cached = {
+        let mut read_conn = state.redis_read.lock().await;
+        cache::get_url(&mut read_conn, &short_code).await
+    };
+
+    if let Some(url) = cached {
+        state.metrics.cache_hits_total.inc();
+        state.metrics.redis_ops_total.inc();
+        let original = url.original_url.clone();
+        let state2 = state.clone();
+        let code = short_code.clone();
+        tokio::spawn(async move {
+            track_click(&state2, &code).await;
+        });
+        return Redirect::temporary(&original).into_response();
+    }
+
+    state.metrics.cache_misses_total.inc();
+    state.metrics.redis_ops_total.inc();
+
+    // 2. Cache miss — fall back to DB.
+    let url: Option<Url> = sqlx::query_as(
+        "SELECT id, short_code, original_url, clicks, created_at, updated_at FROM urls WHERE short_code = $1",
+    )
+    .bind(&short_code)
+    .fetch_optional(&state.db)
+    .await
+    .unwrap_or(None);
+
+    state.metrics.db_reads_total.inc();
+
+    match url {
+        None => (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({ "detail": "Short URL not found" })),
+        )
+            .into_response(),
+        Some(url) => {
+            // Populate cache for next request.
+            {
+                let mut write_conn = state.redis_write.lock().await;
+                if let Err(e) = cache::set_url(&mut write_conn, &url).await {
+                    tracing::warn!("cache set failed: {e}");
+                }
+            }
+            let original = url.original_url.clone();
+            let state2 = state.clone();
+            let code = short_code.clone();
+            tokio::spawn(async move {
+                track_click(&state2, &code).await;
+            });
+            Redirect::temporary(&original).into_response()
+        }
+    }
+}
+
+// ── GET /api/stats/:short_code ────────────────────────────────────────────────
+
+pub async fn stats(
+    State(state): State<Arc<AppState>>,
+    Path(short_code): Path<String>,
+) -> Response {
+    let url: Option<Url> = sqlx::query_as(
+        "SELECT id, short_code, original_url, clicks, created_at, updated_at FROM urls WHERE short_code = $1",
+    )
+    .bind(&short_code)
+    .fetch_optional(&state.db)
+    .await
+    .unwrap_or(None);
+
+    state.metrics.db_reads_total.inc();
+
+    match url {
+        None => (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({ "detail": "Short URL not found" })),
+        )
+            .into_response(),
+        Some(url) => Json(UrlResponse::from_url(&url, &state.config.base_url)).into_response(),
+    }
+}
+
+// ── Internal: click tracking ──────────────────────────────────────────────────
+
+async fn track_click(state: &AppState, short_code: &str) {
+    // Increment Redis click buffer (primary — write op).
+    {
+        let mut write_conn = state.redis_write.lock().await;
+        if let Err(e) = cache::incr_click_buffer(
+            &mut write_conn,
+            &state.config.click_buffer_key_prefix,
+            short_code,
+            state.config.click_buffer_ttl_seconds,
+        )
+        .await
+        {
+            tracing::warn!("click buffer incr failed: {e}");
+        }
+    }
+    state.metrics.redis_ops_total.inc();
+
+    // Publish to Kafka; fall back to Redis stream on failure.
+    let event = ClickEvent {
+        short_code: short_code.to_string(),
+        delta: 1,
+    };
+    let published = kafka::publish_click(
+        &state.kafka_producer,
+        &state.config.kafka_click_topic,
+        &event,
+    )
+    .await;
+
+    if published {
+        state.metrics.kafka_publish_total.inc();
+    } else {
+        state.metrics.stream_fallback_total.inc();
+        let mut write_conn = state.redis_write.lock().await;
+        if let Err(e) = cache::push_fallback_stream(
+            &mut write_conn,
+            &state.config.click_stream_key,
+            short_code,
+            1,
+        )
+        .await
+        {
+            tracing::warn!("fallback stream push failed: {e}");
+        }
+    }
+}

@@ -120,16 +120,21 @@ async def _warmup(
     client: httpx.AsyncClient,
     base_url: str,
     count: int,
+    batch_size: int = 5,
 ) -> list[str]:
     print(f"\n[warmup] creating {count} short URLs...")
     short_codes: list[str] = []
-    tasks = [client.post(f"{base_url}/api/shorten", json={"url": _random_url()}) for _ in range(count)]
-    responses = await asyncio.gather(*tasks, return_exceptions=True)
-    for response in responses:
-        if isinstance(response, httpx.Response) and response.status_code == 201:
-            code = response.json().get("short_code", "")
-            if code:
-                short_codes.append(code)
+    for i in range(0, count, batch_size):
+        batch = [
+            client.post(f"{base_url}/api/shorten", json={"url": _random_url()})
+            for _ in range(min(batch_size, count - i))
+        ]
+        responses = await asyncio.gather(*batch, return_exceptions=True)
+        for response in responses:
+            if isinstance(response, httpx.Response) and response.status_code == 201:
+                code = response.json().get("short_code", "")
+                if code:
+                    short_codes.append(code)
     print(f"[warmup] created {len(short_codes)} short URLs")
     return short_codes
 

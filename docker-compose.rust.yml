@@ -1,0 +1,351 @@
+# Rust stack — same shared infra (postgres, redis, kafka, clickhouse, nginx)
+# but app/keygen/ingestion services replaced with Rust binaries.
+#
+# Usage:
+#   make rust-infra-up    # start Rust stack
+#   make python-infra-up  # start Python stack (docker-compose.yml)
+#   make infra-down       # stop whichever is running
+
+services:
+  load-balancer:
+    image: nginx:1.27-alpine
+    container_name: urlshortener-lb
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./docker/nginx/nginx-rust.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - app-rs-1
+      - app-rs-2
+      - app-rs-3
+    networks:
+      - urlshortener-net
+    restart: unless-stopped
+
+  app-rs-1:
+    build:
+      context: .
+      dockerfile: docker/rust/Dockerfile.app
+    container_name: urlshortener-app-rs-1
+    env_file: .env
+    environment:
+      KEYGEN_SERVICE_URL: http://keygen-rs:8010
+      BASE_URL: http://localhost:8080
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_started
+      kafka-init:
+        condition: service_completed_successfully
+      keygen-rs:
+        condition: service_started
+    networks:
+      - urlshortener-net
+    restart: unless-stopped
+
+  app-rs-2:
+    build:
+      context: .
+      dockerfile: docker/rust/Dockerfile.app
+    container_name: urlshortener-app-rs-2
+    env_file: .env
+    environment:
+      KEYGEN_SERVICE_URL: http://keygen-rs:8010
+      BASE_URL: http://localhost:8080
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_started
+      kafka-init:
+        condition: service_completed_successfully
+      keygen-rs:
+        condition: service_started
+    networks:
+      - urlshortener-net
+    restart: unless-stopped
+
+  app-rs-3:
+    build:
+      context: .
+      dockerfile: docker/rust/Dockerfile.app
+    container_name: urlshortener-app-rs-3
+    env_file: .env
+    environment:
+      KEYGEN_SERVICE_URL: http://keygen-rs:8010
+      BASE_URL: http://localhost:8080
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_started
+      kafka-init:
+        condition: service_completed_successfully
+      keygen-rs:
+        condition: service_started
+    networks:
+      - urlshortener-net
+    restart: unless-stopped
+
+  keygen-rs:
+    build:
+      context: .
+      dockerfile: docker/rust/Dockerfile.keygen
+    container_name: urlshortener-keygen-rs
+    env_file: .env
+    depends_on:
+      - keygen-redis-primary
+      - keygen-redis-secondary
+    networks:
+      - urlshortener-net
+    restart: unless-stopped
+
+  ingestion-rs-1:
+    build:
+      context: .
+      dockerfile: docker/rust/Dockerfile.ingestion
+    container_name: urlshortener-ingestion-rs-1
+    environment:
+      INGESTION_CONSUMER_NAME: ingestion-consumer-1
+      INGESTION_METRICS_PORT: "9200"
+    env_file: .env
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_started
+      kafka-init:
+        condition: service_completed_successfully
+      clickhouse:
+        condition: service_started
+    networks:
+      - urlshortener-net
+    restart: unless-stopped
+
+  ingestion-rs-2:
+    build:
+      context: .
+      dockerfile: docker/rust/Dockerfile.ingestion
+    container_name: urlshortener-ingestion-rs-2
+    environment:
+      INGESTION_CONSUMER_NAME: ingestion-consumer-2
+      INGESTION_METRICS_PORT: "9200"
+    env_file: .env
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_started
+      kafka-init:
+        condition: service_completed_successfully
+      clickhouse:
+        condition: service_started
+    networks:
+      - urlshortener-net
+    restart: unless-stopped
+
+  ingestion-rs-3:
+    build:
+      context: .
+      dockerfile: docker/rust/Dockerfile.ingestion
+    container_name: urlshortener-ingestion-rs-3
+    environment:
+      INGESTION_CONSUMER_NAME: ingestion-consumer-3
+      INGESTION_METRICS_PORT: "9200"
+    env_file: .env
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_started
+      kafka-init:
+        condition: service_completed_successfully
+      clickhouse:
+        condition: service_started
+    networks:
+      - urlshortener-net
+    restart: unless-stopped
+
+  # ── Shared infrastructure (identical to Python stack) ──────────────────────
+
+  kafka-init:
+    image: redpandadata/redpanda:v24.1.14
+    container_name: urlshortener-kafka-init
+    entrypoint: ["/bin/sh", "-lc"]
+    command: >
+      '
+      target=6;
+      for i in $$(seq 1 45); do
+        curr=$$(rpk -X brokers=kafka:9092 topic describe click_events 2>/dev/null | awk "/^PARTITIONS/{print \$$2}" || true);
+        if [ -z "$$curr" ]; then
+          rpk -X brokers=kafka:9092 topic create click_events -p $$target -r 1 >/dev/null 2>&1 || true;
+        elif [ "$$curr" -lt $$target ]; then
+          add=$$((target-curr));
+          rpk -X brokers=kafka:9092 topic add-partitions click_events -n $$add >/dev/null 2>&1 || true;
+        else
+          break;
+        fi;
+        sleep 1;
+      done;
+      exit 0;
+      '
+    depends_on:
+      kafka:
+        condition: service_started
+    networks:
+      - urlshortener-net
+    restart: "no"
+
+  db:
+    image: postgres:16-alpine
+    container_name: urlshortener-db
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-urlshortener}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-urlshortener}
+      POSTGRES_DB: ${POSTGRES_DB:-urlshortener}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-urlshortener}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - urlshortener-net
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: urlshortener-redis
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - urlshortener-net
+    restart: unless-stopped
+
+  redis-replica:
+    image: redis:7-alpine
+    container_name: urlshortener-redis-replica
+    command: redis-server --replicaof redis 6379
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - urlshortener-net
+    restart: unless-stopped
+
+  keygen-redis-primary:
+    image: redis:7-alpine
+    container_name: urlshortener-keygen-redis-primary
+    networks:
+      - urlshortener-net
+    restart: unless-stopped
+
+  keygen-redis-secondary:
+    image: redis:7-alpine
+    container_name: urlshortener-keygen-redis-secondary
+    networks:
+      - urlshortener-net
+    restart: unless-stopped
+
+  kafka:
+    image: redpandadata/redpanda:v24.1.14
+    container_name: urlshortener-kafka
+    command:
+      - redpanda
+      - start
+      - --overprovisioned
+      - --smp
+      - "1"
+      - --memory
+      - 1G
+      - --reserve-memory
+      - 0M
+      - --node-id
+      - "0"
+      - --check=false
+      - --kafka-addr
+      - PLAINTEXT://0.0.0.0:9092
+      - --advertise-kafka-addr
+      - PLAINTEXT://kafka:9092
+    networks:
+      - urlshortener-net
+    restart: unless-stopped
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.8
+    container_name: urlshortener-clickhouse
+    environment:
+      CLICKHOUSE_USER: default
+      CLICKHOUSE_PASSWORD: clickhouse
+    ports:
+      - "8123:8123"
+      - "9000:9000"
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+    networks:
+      - urlshortener-net
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    container_name: urlshortener-prometheus
+    volumes:
+      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+    networks:
+      - urlshortener-net
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:11.1.4
+    container_name: urlshortener-grafana
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      - prometheus
+    networks:
+      - urlshortener-net
+    restart: unless-stopped
+
+  dozzle:
+    image: amir20/dozzle:latest
+    container_name: urlshortener-dozzle
+    ports:
+      - "9999:8080"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - urlshortener-net
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  redis_data:
+  clickhouse_data:
+
+networks:
+  urlshortener-net:
+    driver: bridge

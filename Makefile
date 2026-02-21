@@ -1,4 +1,63 @@
-.PHONY: up down build test orchestrator orchestrator-celebrity orchestrator-100k orchestrator-100k-dist orchestrator-100k-dist-fresh smoke load-ui boards doctor doctor-strict celebrity-assert logs clean restart status fmt lint typecheck bench standards-check
+.PHONY: up down build test orchestrator orchestrator-celebrity orchestrator-100k orchestrator-100k-dist orchestrator-100k-dist-fresh smoke load-ui boards doctor doctor-strict celebrity-assert logs clean restart status fmt lint typecheck bench standards-check python-infra-up rust-infra-up infra-down rust-build rust-bench bench-compare
+
+# ── Stack switcher ─────────────────────────────────────────────────────────────
+# Only one stack runs at a time. Both share the same infra (postgres/redis/kafka).
+#
+#   make python-infra-up   start Python stack (docker-compose.yml)
+#   make rust-infra-up     start Rust stack   (docker-compose.rust.yml)
+#   make infra-down        stop whichever stack is running
+
+python-infra-up:
+	@echo "==> Starting Python stack..."
+	docker compose -f docker-compose.rust.yml down --remove-orphans 2>/dev/null || true
+	docker compose up --build -d
+	@echo "==> Python stack up at http://localhost:8080"
+
+rust-infra-up:
+	@echo "==> Starting Rust stack..."
+	docker compose down --remove-orphans 2>/dev/null || true
+	docker compose -f docker-compose.rust.yml up --build -d
+	@echo "==> Rust stack up at http://localhost:8080"
+
+infra-down:
+	docker compose down --remove-orphans 2>/dev/null || true
+	docker compose -f docker-compose.rust.yml down --remove-orphans 2>/dev/null || true
+
+# Build Rust binaries only (no start)
+rust-build:
+	docker compose -f docker-compose.rust.yml build
+
+# Benchmark Rust stack (same script, same knobs as Python bench)
+rust-bench:
+	@docker run --rm --network host \
+		-e BENCH_BASE_URL=$${BENCH_BASE_URL:-http://host.docker.internal:8080} \
+		-e BENCH_DURATION_SECONDS=$${BENCH_DURATION_SECONDS:-15} \
+		-e BENCH_TIMEOUT_SECONDS=$${BENCH_TIMEOUT_SECONDS:-2} \
+		-e BENCH_WRITER_CONCURRENCY=$${BENCH_WRITER_CONCURRENCY:-10} \
+		-e BENCH_READER_CONCURRENCY=$${BENCH_READER_CONCURRENCY:-60} \
+		-e BENCH_CELEBRITY_CONCURRENCY=$${BENCH_CELEBRITY_CONCURRENCY:-30} \
+		-e BENCH_CELEBRITY_POOL_SIZE=$${BENCH_CELEBRITY_POOL_SIZE:-5} \
+		-e BENCH_WARMUP_URLS=$${BENCH_WARMUP_URLS:-200} \
+		-v "$$(pwd)":/work -w /work python:3.12-slim bash -lc \
+		"pip install --no-cache-dir httpx==0.26.0 >/dev/null && python scripts/bench_http.py"
+
+# Run both stacks sequentially and produce a side-by-side comparison.
+# Results saved to /tmp/bench_python.txt and /tmp/bench_rust.txt.
+bench-compare:
+	@echo "=== Step 1: Python stack ==="
+	$(MAKE) python-infra-up
+	@echo "Waiting 30s for stack to stabilise..."
+	@sleep 30
+	$(MAKE) bench | tee /tmp/bench_python.txt
+	@echo ""
+	@echo "=== Step 2: Rust stack ==="
+	$(MAKE) rust-infra-up
+	@echo "Waiting 30s for stack to stabilise..."
+	@sleep 30
+	$(MAKE) rust-bench | tee /tmp/bench_rust.txt
+	@echo ""
+	@echo "=== Comparison ==="
+	@python3 scripts/bench_compare.py /tmp/bench_python.txt /tmp/bench_rust.txt
 
 # One command to start everything
 up:

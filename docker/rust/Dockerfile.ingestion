@@ -1,0 +1,46 @@
+# ── Stage 1: builder ──────────────────────────────────────────────────────────
+FROM rust:1.93-slim-bookworm AS builder
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    cmake \
+    libssl-dev \
+    pkg-config \
+    libsasl2-dev \
+    libcurl4-openssl-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /build
+
+COPY Cargo.toml Cargo.lock* ./
+COPY services/app-rs/Cargo.toml services/app-rs/
+COPY services/keygen-rs/Cargo.toml services/keygen-rs/
+COPY services/ingestion-rs/Cargo.toml services/ingestion-rs/
+
+RUN mkdir -p services/app-rs/src services/keygen-rs/src services/ingestion-rs/src \
+    && echo 'fn main(){}' > services/app-rs/src/main.rs \
+    && echo 'fn main(){}' > services/keygen-rs/src/main.rs \
+    && echo 'fn main(){}' > services/ingestion-rs/src/main.rs
+
+RUN cargo build --release -p ingestion-rs 2>&1 | tail -5 || true
+
+COPY services/ingestion-rs/src/ services/ingestion-rs/src/
+RUN touch services/ingestion-rs/src/main.rs \
+    && cargo build --release -p ingestion-rs
+
+# ── Stage 2: runtime ──────────────────────────────────────────────────────────
+FROM debian:bookworm-slim AS runtime
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    libssl3 \
+    libsasl2-2 \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /build/target/release/ingestion-rs /usr/local/bin/ingestion-rs
+
+RUN useradd -r -s /bin/false appuser
+USER appuser
+
+EXPOSE 9200
+CMD ["ingestion-rs"]

@@ -280,10 +280,13 @@ def generate_short_code(length: int = settings.SHORT_CODE_LENGTH) -> str:
     return generate(ALPHABET, length)
 
 
-async def get_url_by_code(short_code: str, db: AsyncSession, cache: redis.Redis) -> URL | None:
+async def get_url_by_code(short_code: str, db: AsyncSession, cache: redis.Redis, cache_write: redis.Redis | None = None) -> URL | None:
     assert isinstance(short_code, str) and short_code, f"short_code must be a non-empty string, got {short_code!r}"
     assert db is not None, "db must not be None"
     assert cache is not None, "cache must not be None"
+    # cache_write is the primary Redis used for lock acquisition (writes).
+    # Falls back to cache if not provided (backwards-compatible).
+    _write = cache_write if cache_write is not None else cache
     cache_key = f"url:{short_code}"
     cached = await cache.get(cache_key)
     APP_EDGE_REDIS_OPS_TOTAL.inc()
@@ -291,7 +294,7 @@ async def get_url_by_code(short_code: str, db: AsyncSession, cache: redis.Redis)
         data = json.loads(cached)
         return URL(**data)
 
-    acquired_lock = await _acquire_cache_lock(cache, short_code)
+    acquired_lock = await _acquire_cache_lock(_write, short_code)
     if not acquired_lock:
         for _ in range(settings.CACHE_LOCK_RETRY_COUNT):
             await asyncio.sleep(settings.CACHE_LOCK_RETRY_DELAY_SECONDS)
@@ -307,10 +310,10 @@ async def get_url_by_code(short_code: str, db: AsyncSession, cache: redis.Redis)
         url = result.scalar_one_or_none()
 
         if url:
-            await _cache_url(url, cache)
+            await _cache_url(url, _write)
     finally:
         if acquired_lock:
-            await _release_cache_lock(cache, short_code)
+            await _release_cache_lock(_write, short_code)
 
     return url
 

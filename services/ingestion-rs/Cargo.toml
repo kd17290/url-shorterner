@@ -1,0 +1,27 @@
+[package]
+name = "ingestion-rs"
+version = "1.0.0"
+edition = "2021"
+
+[[bin]]
+name = "ingestion-rs"
+path = "src/main.rs"
+
+[dependencies]
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sqlx = { workspace = true }
+redis = { workspace = true }
+rdkafka = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+prometheus = { workspace = true }
+dotenvy = { workspace = true }
+envy = { workspace = true }
+chrono = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+# ClickHouse HTTP client — uses the native HTTP interface (port 8123)
+reqwest = { workspace = true }
+axum = { workspace = true }

@@ -1,0 +1,30 @@
+[package]
+name = "app-rs"
+version = "1.0.0"
+edition = "2021"
+
+[[bin]]
+name = "app-rs"
+path = "src/main.rs"
+
+[dependencies]
+tokio = { workspace = true }
+axum = { workspace = true }
+tower-http = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sqlx = { workspace = true }
+redis = { workspace = true }
+rdkafka = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+prometheus = { workspace = true }
+dotenvy = { workspace = true }
+envy = { workspace = true }
+chrono = { workspace = true }
+uuid = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+rand = { workspace = true }
+base62 = { workspace = true }
+reqwest = { workspace = true }

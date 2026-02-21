@@ -189,7 +189,7 @@ async def redirect_to_url(
 ) -> RedirectResponse:
     # cache_read → replica (read-only GET lookup, hot path)
     # cache      → primary (INCR click buffer, XADD fallback stream)
-    url = await service.get_url_by_code(short_code, db, cache_read)
+    url = await service.get_url_by_code(short_code, db, cache_read, cache_write=cache)
     if not url:
         raise HTTPException(status_code=404, detail="Short URL not found")
 
