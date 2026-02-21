@@ -9,7 +9,7 @@
     "rps": 459.00,
     "max_errors": 0
   },
-  "celebrity (GET /<code> — 5-code hot pool)": {
+  "celebrity (GET /<code>": {
     "rps": 228.67,
     "max_errors": 0
   },

@@ -61,6 +61,24 @@ def parse_bench_output(text: str) -> dict[str, dict[str, float]]:
     return results
 
 
+def _find_measured_scenario(
+    scenario_key: str, measured: dict[str, dict[str, float]]
+) -> tuple[str, dict[str, float]] | None:
+    """Find a measured scenario by exact name or prefix match (key ending with *).
+
+    Prefix matching handles dynamic scenario names like
+    'celebrity (GET /<code> — N-code hot pool)' where N varies.
+    Use a baseline key like 'celebrity (GET /<code>' to match any N.
+    """
+    if scenario_key in measured:
+        return scenario_key, measured[scenario_key]
+    # Prefix match: baseline key is a prefix of the actual scenario name
+    for measured_name, metrics in measured.items():
+        if measured_name.startswith(scenario_key):
+            return measured_name, metrics
+    return None
+
+
 def check_regression(
     measured: dict[str, dict[str, float]],
     baselines: dict[str, dict[str, float]],
@@ -72,11 +90,13 @@ def check_regression(
     for scenario_name, baseline_metrics in baselines.items():
         if scenario_name.startswith("_"):
             continue  # skip metadata/comment keys
-        if scenario_name not in measured:
+
+        match = _find_measured_scenario(scenario_name, measured)
+        if match is None:
             failures.append(f"MISSING scenario in output: '{scenario_name}'")
             continue
 
-        measured_metrics = measured[scenario_name]
+        _matched_name, measured_metrics = match
 
         baseline_rps = baseline_metrics.get("rps", 0.0)
         measured_rps = measured_metrics.get("rps", 0.0)

@@ -1,11 +1,14 @@
 {
-  "_comment": "RPS baselines for GitHub Actions free runners (2-core shared). Measured 2026-02-21: writer=23 RPS, reader=86 RPS, aggregate=153 RPS. CI uses 50% tolerance so floors are ~half of observed. max_errors is omitted (null) for all scenarios — errors are expected on a cold CI stack because Kafka publish failures are non-fatal (the app continues serving HTTP). Real throughput baselines enforced locally: bench_baselines.json at 15% tolerance via make bench. Celebrity scenario omitted — its name is dynamic (N-code hot pool) and varies with BENCH_CELEBRITY_POOL_SIZE.",
+  "_comment": "Floor RPS baselines for GitHub Actions free runners (2-core shared). Measured 2026-02-21: writer=23, reader=86, celebrity=43, aggregate=153 RPS. CI uses 50% tolerance so floors are ~half of observed. max_errors omitted — errors are expected on cold CI stack (Kafka publish failures are non-fatal). Celebrity key is a prefix — bench_regression_check.py matches any scenario name starting with that prefix, handling the dynamic N-code pool size. Local baselines: bench_baselines.json at 15% via make bench.",
   "_tolerance_note": "50% tolerance. Local: bench_baselines.json at 15%.",
   "writer (POST /api/shorten)": {
     "rps": 10.0
   },
   "reader (GET /<code> — broad pool)": {
     "rps": 40.0
+  },
+  "celebrity (GET /<code>": {
+    "rps": 15.0
   },
   "aggregate": {
     "rps": 50.0
