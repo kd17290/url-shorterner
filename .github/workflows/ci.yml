@@ -162,15 +162,15 @@ jobs:
 
       - name: Run pytest (Docker)
         run: |
-          NET=$(docker network ls --filter name=urlshortener-net --format '{{.Name}}' | head -1)
+          # Derive the network from the running test container (works regardless of project dir name)
+          NET=$(docker inspect urlshortener-db-test \
+            --format '{{range $k,$v := .NetworkSettings.Networks}}{{$k}}{{end}}' 2>/dev/null | head -1)
           echo "Using network: $NET"
           docker run --rm \
             --network "$NET" \
+            --env-file .env.ci \
             -e DATABASE_URL=postgresql+asyncpg://test:test@urlshortener-db-test:5432/urlshortener_test \
             -e REDIS_URL=redis://urlshortener-redis-test:6379/0 \
-            -e APP_ENV=test \
-            -e BASE_URL=http://localhost:8000 \
-            -e SHORT_CODE_LENGTH=7 \
             -v "$PWD":/work -w /work \
             python:3.12-slim bash -lc \
             "pip install --no-cache-dir -r requirements.txt >/dev/null && \
