@@ -374,7 +374,7 @@ async def create_short_url(payload: URLCreate, db: AsyncSession, cache: redis.Re
             except IntegrityError as retry_exc:
                 await db.rollback()
                 # Still colliding - this indicates a serious allocator issue
-                raise ValueError(f"Failed to generate unique short code after retry") from retry_exc
+                raise ValueError("Failed to generate unique short code after retry") from retry_exc
 
     await _cache_url(url, cache)
     return url

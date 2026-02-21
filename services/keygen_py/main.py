@@ -17,7 +17,7 @@ async def _allocate_from_with_fallback(size: int, stack: str) -> tuple[int, int]
     redis_clients = [app.state.redis_primary, app.state.redis_secondary]
     # Use stack-specific allocator key to avoid collisions between Python and Rust
     allocator_key = f"{settings.ID_ALLOCATOR_KEY}:{stack}"
-    
+
     for client in redis_clients:
         try:
             end_value = await client.incrby(allocator_key, size)
@@ -94,7 +94,7 @@ async def health() -> HealthResponse:
 async def allocate(req: AllocateRequest) -> AllocateResponse:
     if req.size <= 0:
         raise HTTPException(status_code=400, detail="size must be > 0")
-    
+
     if req.stack not in ["python", "rust"]:
         raise HTTPException(status_code=400, detail="stack must be 'python' or 'rust'")
 
