@@ -134,7 +134,11 @@ async def health_check(
     except Exception:
         cache_status = HealthStatus.UNHEALTHY
 
-    status = HealthStatus.HEALTHY if db_status is HealthStatus.HEALTHY and cache_status is HealthStatus.HEALTHY else HealthStatus.UNHEALTHY
+    status = (
+        HealthStatus.HEALTHY
+        if db_status is HealthStatus.HEALTHY and cache_status is HealthStatus.HEALTHY
+        else HealthStatus.UNHEALTHY
+    )
     return HealthResponse(status=status, database=db_status, cache=cache_status)
 
 

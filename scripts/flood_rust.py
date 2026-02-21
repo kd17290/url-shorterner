@@ -18,7 +18,7 @@ FLOOD_CONCURRENCY       default: 500   (concurrent GET workers)
 FLOOD_WARMUP_URLS       default: 500   (codes to pre-warm into Redis)
 FLOOD_WARMUP_BATCH      default: 20    (POST batch size during warmup)
 FLOOD_TIMEOUT           default: 5     (per-request timeout seconds)
-FLOOD_WRITER_RATIO      default: 0.05  (5 % of workers also POST)
+FLOOD_WRITER_RATIO      default: 0.10  (10 % of workers also POST)
 """
 
 import asyncio
@@ -26,10 +26,9 @@ import os
 import random
 import string
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 import httpx
-
 
 # ── shared counters (written from many coroutines) ───────────────────────────
 @dataclass
@@ -37,7 +36,7 @@ class Counters:
     ok: int = 0
     errors: int = 0
     latency_total_s: float = 0.0
-    window_ok: int = 0       # reset every second by the printer
+    window_ok: int = 0  # reset every second by the printer
     window_errors: int = 0
 
 
@@ -57,10 +56,7 @@ async def warmup(
     codes: list[str] = []
     for i in range(0, count, batch_size):
         batch_n = min(batch_size, count - i)
-        tasks = [
-            client.post(f"{base_url}/api/shorten", json={"url": _random_url()})
-            for _ in range(batch_n)
-        ]
+        tasks = [client.post(f"{base_url}/api/shorten", json={"url": _random_url()}) for _ in range(batch_n)]
         responses = await asyncio.gather(*tasks, return_exceptions=True)
         for r in responses:
             if isinstance(r, httpx.Response) and r.status_code == 201:
@@ -110,9 +106,7 @@ async def writer_worker(
     while time.perf_counter() < deadline:
         t0 = time.perf_counter()
         try:
-            r = await client.post(
-                f"{base_url}/api/shorten", json={"url": _random_url()}
-            )
+            r = await client.post(f"{base_url}/api/shorten", json={"url": _random_url()})
             elapsed = time.perf_counter() - t0
             counters.latency_total_s += elapsed
             if r.status_code == 201:
@@ -142,9 +136,7 @@ async def stats_printer(
         elapsed = time.perf_counter() - start
         rps = counters.window_ok + counters.window_errors
         peak_rps = max(peak_rps, rps)
-        avg_lat = (
-            counters.latency_total_s / max(counters.ok + counters.errors, 1) * 1000
-        )
+        avg_lat = counters.latency_total_s / max(counters.ok + counters.errors, 1) * 1000
         remaining = max(0, deadline - time.perf_counter())
         print(
             f"  t={elapsed:5.0f}s | RPS={rps:6.0f} | peak={peak_rps:6.0f}"
@@ -182,9 +174,7 @@ async def main() -> None:
         max_connections=concurrency + 50,
     )
 
-    async with httpx.AsyncClient(
-        timeout=timeout_s, limits=limits, follow_redirects=False
-    ) as client:
+    async with httpx.AsyncClient(timeout=timeout_s, limits=limits, follow_redirects=False) as client:
         codes = await warmup(client, base_url, warmup_count, warmup_batch)
         if not codes:
             print("[ERROR] warmup produced 0 codes — is the Rust stack healthy?")
@@ -194,26 +184,17 @@ async def main() -> None:
         deadline = time.perf_counter() + duration_s
 
         print(f"\n[flood] starting {concurrency} workers for {duration_s:.0f}s…")
-        print(
-            "  t(s)  | RPS    | peak   | ok       | err    | avg_lat | remaining"
-        )
+        print("  t(s)  | RPS    | peak   | ok       | err    | avg_lat | remaining")
         print("  " + "-" * 63)
 
-        tasks = [
-            asyncio.create_task(
-                reader_worker(client, base_url, codes, deadline, counters)
-            )
-            for _ in range(n_readers)
-        ] + [
-            asyncio.create_task(
-                writer_worker(client, base_url, codes, deadline, counters)
-            )
-            for _ in range(n_writers)
-        ] + [
-            asyncio.create_task(
-                stats_printer(counters, deadline, duration_s)
-            )
-        ]
+        tasks = (
+            [asyncio.create_task(reader_worker(client, base_url, codes, deadline, counters)) for _ in range(n_readers)]
+            + [
+                asyncio.create_task(writer_worker(client, base_url, codes, deadline, counters))
+                for _ in range(n_writers)
+            ]
+            + [asyncio.create_task(stats_printer(counters, deadline, duration_s))]
+        )
 
         await asyncio.gather(*tasks)
 

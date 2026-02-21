@@ -66,7 +66,7 @@ async def shutdown() -> None:
 async def health() -> HealthResponse:
     primary_status = HealthStatus.HEALTHY
     secondary_status = HealthStatus.HEALTHY
-    
+
     try:
         await app.state.redis_primary.ping()
     except Exception:  # pragma: no cover - defensive runtime guard
@@ -77,7 +77,11 @@ async def health() -> HealthResponse:
     except Exception:  # pragma: no cover - defensive runtime guard
         secondary_status = HealthStatus.UNHEALTHY
 
-    overall_status = HealthStatus.HEALTHY if primary_status is HealthStatus.HEALTHY or secondary_status is HealthStatus.HEALTHY else HealthStatus.UNHEALTHY
+    overall_status = (
+        HealthStatus.HEALTHY
+        if primary_status is HealthStatus.HEALTHY or secondary_status is HealthStatus.HEALTHY
+        else HealthStatus.UNHEALTHY
+    )
     return HealthResponse(status=overall_status, primary=primary_status, secondary=secondary_status)
 
 
