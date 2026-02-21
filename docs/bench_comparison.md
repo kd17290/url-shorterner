@@ -63,6 +63,20 @@ Python stack hit `QueuePool limit` (SQLAlchemy connection pool exhausted) under 
 
 ---
 
+## Rust — 100k Load Test (concurrency=170, 60 s)
+
+| Scenario | Requests | OK | Errors | RPS | Avg Latency |
+|---|---|---|---|---|---|
+| POST /api/shorten (×20) | 3 126 | 3 126 | **0** | 52.10 | 385 ms |
+| GET /\<code\> broad (×100) | 15 784 | 15 784 | **0** | 263.07 | 381 ms |
+| GET /\<code\> celebrity (×50) | 7 666 | 7 666 | **0** | 127.77 | 393 ms |
+| **Aggregate** | **26 576** | **26 576** | **0** | **442.93** | — |
+
+- **26,576 total requests** processed with **zero errors** under 170 concurrent connections.
+- Latency stays flat at ~385 ms avg even at 170 concurrency — Tokio's work-stealing scheduler absorbs the load without pool exhaustion.
+
+---
+
 ## Root Cause Analysis
 
 ### Python stack bottlenecks

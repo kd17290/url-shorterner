@@ -247,7 +247,7 @@ services:
       context: .
       dockerfile: docker/api/Dockerfile
     container_name: urlshortener-keygen
-    command: uvicorn services.keygen.main:app --host 0.0.0.0 --port 8010
+    command: uvicorn services.keygen_py.main:app --host 0.0.0.0 --port 8010
     env_file:
       - .env
     depends_on:
@@ -303,7 +303,7 @@ services:
       context: .
       dockerfile: docker/api/Dockerfile
     container_name: urlshortener-ingestion-1
-    command: python -m services.ingestion.worker
+    command: python -m services.ingestion_py.worker
     environment:
       INGESTION_CONSUMER_NAME: ingestion-consumer-1
       INGESTION_METRICS_PORT: 9200
@@ -329,7 +329,7 @@ services:
       context: .
       dockerfile: docker/api/Dockerfile
     container_name: urlshortener-ingestion-2
-    command: python -m services.ingestion.worker
+    command: python -m services.ingestion_py.worker
     environment:
       INGESTION_CONSUMER_NAME: ingestion-consumer-2
       INGESTION_METRICS_PORT: 9200
@@ -355,7 +355,7 @@ services:
       context: .
       dockerfile: docker/api/Dockerfile
     container_name: urlshortener-ingestion-3
-    command: python -m services.ingestion.worker
+    command: python -m services.ingestion_py.worker
     environment:
       INGESTION_CONSUMER_NAME: ingestion-consumer-3
       INGESTION_METRICS_PORT: 9200
@@ -381,7 +381,7 @@ services:
       context: .
       dockerfile: docker/api/Dockerfile
     container_name: urlshortener-cache-warmer
-    command: python -m services.cache_warmer.worker
+    command: python -m services.cache_warmer_py.worker
     env_file:
       - .env
     depends_on:

@@ -1,0 +1,171 @@
+{
+  "id": null,
+  "uid": "python-vs-rust",
+  "title": "Python vs Rust — Side-by-Side",
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "5s",
+  "tags": ["comparison", "python", "rust"],
+  "templating": {
+    "list": [
+      {
+        "name": "rate_window",
+        "type": "custom",
+        "label": "Window",
+        "query": "10s,30s,1m,5m",
+        "current": {"text": "30s", "value": "30s"},
+        "includeAll": false,
+        "multi": false
+      }
+    ]
+  },
+  "panels": [
+    {
+      "type": "row",
+      "title": "Throughput — Python (left) vs Rust (right)",
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 0},
+      "collapsed": false
+    },
+    {
+      "type": "stat",
+      "title": "🐍 Python — Total req/s",
+      "gridPos": {"h": 5, "w": 6, "x": 0, "y": 1},
+      "options": {"colorMode": "background"},
+      "fieldConfig": {"defaults": {"color": {"mode": "thresholds"}, "thresholds": {"steps": [{"color": "blue", "value": null}]}}},
+      "targets": [{"expr": "sum(rate(http_requests_total{job=\"app_nodes\"}[$rate_window]))", "legendFormat": "Python req/s"}]
+    },
+    {
+      "type": "stat",
+      "title": "🐍 Python — Error rate %",
+      "gridPos": {"h": 5, "w": 6, "x": 6, "y": 1},
+      "options": {"colorMode": "background"},
+      "fieldConfig": {"defaults": {"unit": "percent", "color": {"mode": "thresholds"}, "thresholds": {"steps": [{"color": "green", "value": null}, {"color": "orange", "value": 1}, {"color": "red", "value": 5}]}}},
+      "targets": [{"expr": "100 * sum(rate(http_requests_total{job=\"app_nodes\",status=~\"5..\"}[$rate_window])) / sum(rate(http_requests_total{job=\"app_nodes\"}[$rate_window]))"}]
+    },
+    {
+      "type": "stat",
+      "title": "🦀 Rust — Total req/s",
+      "gridPos": {"h": 5, "w": 6, "x": 12, "y": 1},
+      "options": {"colorMode": "background"},
+      "fieldConfig": {"defaults": {"color": {"mode": "thresholds"}, "thresholds": {"steps": [{"color": "orange", "value": null}]}}},
+      "targets": [{"expr": "sum(rate(http_requests_total{job=\"app_rs_nodes\"}[$rate_window]))", "legendFormat": "Rust req/s"}]
+    },
+    {
+      "type": "stat",
+      "title": "🦀 Rust — Error rate %",
+      "gridPos": {"h": 5, "w": 6, "x": 18, "y": 1},
+      "options": {"colorMode": "background"},
+      "fieldConfig": {"defaults": {"unit": "percent", "color": {"mode": "thresholds"}, "thresholds": {"steps": [{"color": "green", "value": null}, {"color": "orange", "value": 1}, {"color": "red", "value": 5}]}}},
+      "targets": [{"expr": "100 * sum(rate(http_requests_total{job=\"app_rs_nodes\",status_code=~\"5..\"}[$rate_window])) / sum(rate(http_requests_total{job=\"app_rs_nodes\"}[$rate_window]))"}]
+    },
+    {
+      "type": "timeseries",
+      "title": "Throughput over time — Python vs Rust",
+      "gridPos": {"h": 9, "w": 24, "x": 0, "y": 6},
+      "targets": [
+        {"expr": "sum(rate(http_requests_total{job=\"app_nodes\"}[$rate_window]))", "legendFormat": "🐍 Python"},
+        {"expr": "sum(rate(http_requests_total{job=\"app_rs_nodes\"}[$rate_window]))", "legendFormat": "🦀 Rust"}
+      ]
+    },
+    {
+      "type": "row",
+      "title": "Latency — Python (left) vs Rust (right)",
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 15},
+      "collapsed": false
+    },
+    {
+      "type": "stat",
+      "title": "🐍 Python — p95 latency (s)",
+      "gridPos": {"h": 5, "w": 6, "x": 0, "y": 16},
+      "options": {"colorMode": "background"},
+      "fieldConfig": {"defaults": {"unit": "s", "color": {"mode": "thresholds"}, "thresholds": {"steps": [{"color": "green", "value": null}, {"color": "orange", "value": 0.5}, {"color": "red", "value": 1}]}}},
+      "targets": [{"expr": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{job=\"app_nodes\"}[$rate_window])) by (le))"}]
+    },
+    {
+      "type": "stat",
+      "title": "🐍 Python — p99 latency (s)",
+      "gridPos": {"h": 5, "w": 6, "x": 6, "y": 16},
+      "options": {"colorMode": "background"},
+      "fieldConfig": {"defaults": {"unit": "s", "color": {"mode": "thresholds"}, "thresholds": {"steps": [{"color": "green", "value": null}, {"color": "orange", "value": 1}, {"color": "red", "value": 2}]}}},
+      "targets": [{"expr": "histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket{job=\"app_nodes\"}[$rate_window])) by (le))"}]
+    },
+    {
+      "type": "stat",
+      "title": "🦀 Rust — p95 latency (s)",
+      "gridPos": {"h": 5, "w": 6, "x": 12, "y": 16},
+      "options": {"colorMode": "background"},
+      "fieldConfig": {"defaults": {"unit": "s", "color": {"mode": "thresholds"}, "thresholds": {"steps": [{"color": "green", "value": null}, {"color": "orange", "value": 0.5}, {"color": "red", "value": 1}]}}},
+      "targets": [{"expr": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{job=\"app_rs_nodes\"}[$rate_window])) by (le))"}]
+    },
+    {
+      "type": "stat",
+      "title": "🦀 Rust — p99 latency (s)",
+      "gridPos": {"h": 5, "w": 6, "x": 18, "y": 16},
+      "options": {"colorMode": "background"},
+      "fieldConfig": {"defaults": {"unit": "s", "color": {"mode": "thresholds"}, "thresholds": {"steps": [{"color": "green", "value": null}, {"color": "orange", "value": 1}, {"color": "red", "value": 2}]}}},
+      "targets": [{"expr": "histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket{job=\"app_rs_nodes\"}[$rate_window])) by (le))"}]
+    },
+    {
+      "type": "timeseries",
+      "title": "p95 latency over time — Python vs Rust",
+      "gridPos": {"h": 9, "w": 24, "x": 0, "y": 21},
+      "targets": [
+        {"expr": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{job=\"app_nodes\"}[$rate_window])) by (le))", "legendFormat": "🐍 Python p95"},
+        {"expr": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{job=\"app_rs_nodes\"}[$rate_window])) by (le))", "legendFormat": "🦀 Rust p95"},
+        {"expr": "histogram_quantile(0.50, sum(rate(http_request_duration_seconds_bucket{job=\"app_nodes\"}[$rate_window])) by (le))", "legendFormat": "🐍 Python p50"},
+        {"expr": "histogram_quantile(0.50, sum(rate(http_request_duration_seconds_bucket{job=\"app_rs_nodes\"}[$rate_window])) by (le))", "legendFormat": "🦀 Rust p50"}
+      ]
+    },
+    {
+      "type": "row",
+      "title": "Backend Ops — Python (left) vs Rust (right)",
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 30},
+      "collapsed": false
+    },
+    {
+      "type": "stat",
+      "title": "🐍 Python — Redis ops/s",
+      "gridPos": {"h": 5, "w": 6, "x": 0, "y": 31},
+      "targets": [{"expr": "sum(rate(app_edge_redis_ops_total{job=\"app_nodes\"}[$rate_window]))"}]
+    },
+    {
+      "type": "stat",
+      "title": "🐍 Python — Cache hit %",
+      "gridPos": {"h": 5, "w": 6, "x": 6, "y": 31},
+      "fieldConfig": {"defaults": {"unit": "percent"}},
+      "targets": [{"expr": "100 * sum(rate(app_edge_cache_hits_total{job=\"app_nodes\"}[$rate_window])) / (sum(rate(app_edge_cache_hits_total{job=\"app_nodes\"}[$rate_window])) + sum(rate(app_edge_cache_misses_total{job=\"app_nodes\"}[$rate_window])))"}]
+    },
+    {
+      "type": "stat",
+      "title": "🦀 Rust — Redis ops/s",
+      "gridPos": {"h": 5, "w": 6, "x": 12, "y": 31},
+      "targets": [{"expr": "sum(rate(app_edge_redis_ops_total{job=\"app_rs_nodes\"}[$rate_window]))"}]
+    },
+    {
+      "type": "stat",
+      "title": "🦀 Rust — Cache hit %",
+      "gridPos": {"h": 5, "w": 6, "x": 18, "y": 31},
+      "fieldConfig": {"defaults": {"unit": "percent"}},
+      "targets": [{"expr": "100 * sum(rate(app_edge_cache_hits_total{job=\"app_rs_nodes\"}[$rate_window])) / (sum(rate(app_edge_cache_hits_total{job=\"app_rs_nodes\"}[$rate_window])) + sum(rate(app_edge_cache_misses_total{job=\"app_rs_nodes\"}[$rate_window])))"}]
+    },
+    {
+      "type": "timeseries",
+      "title": "DB writes/s — Python vs Rust",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 36},
+      "targets": [
+        {"expr": "sum(rate(app_edge_db_writes_total{job=\"app_nodes\"}[$rate_window]))", "legendFormat": "🐍 Python DB writes"},
+        {"expr": "sum(rate(app_edge_db_writes_total{job=\"app_rs_nodes\"}[$rate_window]))", "legendFormat": "🦀 Rust DB writes"}
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Kafka events/s — Python vs Rust",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 36},
+      "targets": [
+        {"expr": "sum(rate(app_edge_kafka_publish_total{job=\"app_nodes\"}[$rate_window]))", "legendFormat": "🐍 Python Kafka"},
+        {"expr": "sum(rate(app_edge_kafka_publish_total{job=\"app_rs_nodes\"}[$rate_window]))", "legendFormat": "🦀 Rust Kafka"}
+      ]
+    }
+  ]
+}

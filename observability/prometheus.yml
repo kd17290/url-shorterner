@@ -2,6 +2,7 @@ global:
   scrape_interval: 5s
 
 scrape_configs:
+  # ── Python stack ────────────────────────────────────────────────────────────
   - job_name: app_nodes
     metrics_path: /metrics
     static_configs:
@@ -9,6 +10,8 @@ scrape_configs:
           - app1:8000
           - app2:8000
           - app3:8000
+        labels:
+          stack: python
 
   - job_name: clickhouse_exporter
     static_configs:
@@ -22,3 +25,34 @@ scrape_configs:
           - ingestion-1:9200
           - ingestion-2:9200
           - ingestion-3:9200
+        labels:
+          stack: python
+
+  # ── Rust stack ──────────────────────────────────────────────────────────────
+  - job_name: app_rs_nodes
+    metrics_path: /metrics
+    static_configs:
+      - targets:
+          - app-rs-1:8000
+          - app-rs-2:8000
+          - app-rs-3:8000
+        labels:
+          stack: rust
+
+  - job_name: keygen_rs
+    metrics_path: /metrics
+    static_configs:
+      - targets:
+          - keygen-rs:8010
+        labels:
+          stack: rust
+
+  - job_name: ingestion_rs_workers
+    metrics_path: /metrics
+    static_configs:
+      - targets:
+          - ingestion-rs-1:9200
+          - ingestion-rs-2:9200
+          - ingestion-rs-3:9200
+        labels:
+          stack: rust

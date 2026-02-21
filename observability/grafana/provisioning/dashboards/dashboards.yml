@@ -1,11 +1,29 @@
 apiVersion: 1
 
 providers:
-  - name: URL Shortener Live
+  - name: Python Stack
     orgId: 1
-    folder: URL Shortener
+    folder: "🐍 Python Stack"
     type: file
     disableDeletion: false
     updateIntervalSeconds: 10
     options:
-      path: /var/lib/grafana/dashboards
+      path: /var/lib/grafana/dashboards/python
+
+  - name: Rust Stack
+    orgId: 1
+    folder: "🦀 Rust Stack"
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 10
+    options:
+      path: /var/lib/grafana/dashboards/rust
+
+  - name: Comparison
+    orgId: 1
+    folder: "📊 Python vs Rust"
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 10
+    options:
+      path: /var/lib/grafana/dashboards/comparison

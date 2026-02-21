@@ -1,0 +1,169 @@
+{
+  "id": null,
+  "uid": "python-stack",
+  "title": "Python Stack — Live Traffic",
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "5s",
+  "tags": ["python", "stack"],
+  "templating": {
+    "list": [
+      {
+        "name": "rate_window",
+        "type": "custom",
+        "label": "Window",
+        "query": "10s,30s,1m,5m",
+        "current": {"text": "30s", "value": "30s"},
+        "includeAll": false,
+        "multi": false
+      }
+    ]
+  },
+  "panels": [
+    {
+      "type": "row",
+      "title": "Throughput",
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 0},
+      "collapsed": false
+    },
+    {
+      "type": "stat",
+      "title": "Total req/s",
+      "gridPos": {"h": 5, "w": 5, "x": 0, "y": 1},
+      "options": {"colorMode": "background"},
+      "fieldConfig": {"defaults": {"color": {"mode": "thresholds"}, "thresholds": {"steps": [{"color": "blue", "value": null}]}}},
+      "targets": [{"expr": "sum(rate(http_requests_total{job=\"app_nodes\"}[$rate_window]))", "legendFormat": "req/s"}]
+    },
+    {
+      "type": "stat",
+      "title": "2xx/s",
+      "gridPos": {"h": 5, "w": 4, "x": 5, "y": 1},
+      "options": {"colorMode": "background"},
+      "fieldConfig": {"defaults": {"color": {"mode": "thresholds"}, "thresholds": {"steps": [{"color": "green", "value": null}]}}},
+      "targets": [{"expr": "sum(rate(http_requests_total{job=\"app_nodes\",status=~\"2..\"}[$rate_window]))"}]
+    },
+    {
+      "type": "stat",
+      "title": "3xx/s",
+      "gridPos": {"h": 5, "w": 4, "x": 9, "y": 1},
+      "options": {"colorMode": "background"},
+      "fieldConfig": {"defaults": {"color": {"mode": "thresholds"}, "thresholds": {"steps": [{"color": "blue", "value": null}]}}},
+      "targets": [{"expr": "sum(rate(http_requests_total{job=\"app_nodes\",status=~\"3..\"}[$rate_window]))"}]
+    },
+    {
+      "type": "stat",
+      "title": "4xx/s",
+      "gridPos": {"h": 5, "w": 4, "x": 13, "y": 1},
+      "options": {"colorMode": "background"},
+      "fieldConfig": {"defaults": {"color": {"mode": "thresholds"}, "thresholds": {"steps": [{"color": "yellow", "value": null}]}}},
+      "targets": [{"expr": "sum(rate(http_requests_total{job=\"app_nodes\",status=~\"4..\"}[$rate_window]))"}]
+    },
+    {
+      "type": "stat",
+      "title": "5xx/s",
+      "gridPos": {"h": 5, "w": 4, "x": 17, "y": 1},
+      "options": {"colorMode": "background"},
+      "fieldConfig": {"defaults": {"color": {"mode": "thresholds"}, "thresholds": {"steps": [{"color": "green", "value": null}, {"color": "red", "value": 0.1}]}}},
+      "targets": [{"expr": "sum(rate(http_requests_total{job=\"app_nodes\",status=~\"5..\"}[$rate_window]))"}]
+    },
+    {
+      "type": "stat",
+      "title": "Error rate %",
+      "gridPos": {"h": 5, "w": 3, "x": 21, "y": 1},
+      "options": {"colorMode": "background"},
+      "fieldConfig": {"defaults": {"unit": "percent", "color": {"mode": "thresholds"}, "thresholds": {"steps": [{"color": "green", "value": null}, {"color": "orange", "value": 1}, {"color": "red", "value": 5}]}}},
+      "targets": [{"expr": "100 * sum(rate(http_requests_total{job=\"app_nodes\",status=~\"5..\"}[$rate_window])) / sum(rate(http_requests_total{job=\"app_nodes\"}[$rate_window]))"}]
+    },
+    {
+      "type": "timeseries",
+      "title": "Requests/s by status",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 6},
+      "targets": [{"expr": "sum by (status) (rate(http_requests_total{job=\"app_nodes\"}[$rate_window]))", "legendFormat": "{{status}}"}]
+    },
+    {
+      "type": "timeseries",
+      "title": "Requests/s by app node",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 6},
+      "targets": [{"expr": "sum by (instance) (rate(http_requests_total{job=\"app_nodes\"}[$rate_window]))", "legendFormat": "{{instance}}"}]
+    },
+    {
+      "type": "row",
+      "title": "Latency",
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 14},
+      "collapsed": false
+    },
+    {
+      "type": "timeseries",
+      "title": "Latency p50 / p95 / p99 (s)",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 15},
+      "targets": [
+        {"expr": "histogram_quantile(0.50, sum(rate(http_request_duration_seconds_bucket{job=\"app_nodes\"}[$rate_window])) by (le))", "legendFormat": "p50"},
+        {"expr": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{job=\"app_nodes\"}[$rate_window])) by (le))", "legendFormat": "p95"},
+        {"expr": "histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket{job=\"app_nodes\"}[$rate_window])) by (le))", "legendFormat": "p99"}
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Latency p95 by node",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 15},
+      "targets": [{"expr": "histogram_quantile(0.95, sum by (instance, le) (rate(http_request_duration_seconds_bucket{job=\"app_nodes\"}[$rate_window])))", "legendFormat": "{{instance}}"}]
+    },
+    {
+      "type": "row",
+      "title": "Backend — Redis / DB / Kafka",
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 23},
+      "collapsed": false
+    },
+    {
+      "type": "stat",
+      "title": "Redis ops/s",
+      "gridPos": {"h": 5, "w": 6, "x": 0, "y": 24},
+      "targets": [{"expr": "sum(rate(app_edge_redis_ops_total{job=\"app_nodes\"}[$rate_window]))"}]
+    },
+    {
+      "type": "stat",
+      "title": "Cache hit rate %",
+      "gridPos": {"h": 5, "w": 6, "x": 6, "y": 24},
+      "fieldConfig": {"defaults": {"unit": "percent"}},
+      "targets": [{"expr": "100 * sum(rate(app_edge_cache_hits_total{job=\"app_nodes\"}[$rate_window])) / (sum(rate(app_edge_cache_hits_total{job=\"app_nodes\"}[$rate_window])) + sum(rate(app_edge_cache_misses_total{job=\"app_nodes\"}[$rate_window])))"}]
+    },
+    {
+      "type": "stat",
+      "title": "DB reads/s",
+      "gridPos": {"h": 5, "w": 6, "x": 12, "y": 24},
+      "targets": [{"expr": "sum(rate(app_edge_db_reads_total{job=\"app_nodes\"}[$rate_window]))"}]
+    },
+    {
+      "type": "stat",
+      "title": "DB writes/s",
+      "gridPos": {"h": 5, "w": 6, "x": 18, "y": 24},
+      "targets": [{"expr": "sum(rate(app_edge_db_writes_total{job=\"app_nodes\"}[$rate_window]))"}]
+    },
+    {
+      "type": "stat",
+      "title": "Kafka events/s",
+      "gridPos": {"h": 5, "w": 6, "x": 0, "y": 29},
+      "targets": [{"expr": "sum(rate(app_edge_kafka_publish_total{job=\"app_nodes\"}[$rate_window]))"}]
+    },
+    {
+      "type": "stat",
+      "title": "Stream fallback/s",
+      "gridPos": {"h": 5, "w": 6, "x": 6, "y": 29},
+      "fieldConfig": {"defaults": {"color": {"mode": "thresholds"}, "thresholds": {"steps": [{"color": "green", "value": null}, {"color": "orange", "value": 1}]}}},
+      "targets": [{"expr": "sum(rate(app_edge_stream_fallback_total{job=\"app_nodes\"}[$rate_window]))"}]
+    },
+    {
+      "type": "stat",
+      "title": "Ingestion events/s",
+      "gridPos": {"h": 5, "w": 6, "x": 12, "y": 29},
+      "targets": [{"expr": "sum(rate(ingestion_kafka_events_total{job=\"ingestion_workers\"}[$rate_window]))"}]
+    },
+    {
+      "type": "stat",
+      "title": "Ingestion DB updates/s",
+      "gridPos": {"h": 5, "w": 6, "x": 18, "y": 29},
+      "targets": [{"expr": "sum(rate(ingestion_db_updates_total{job=\"ingestion_workers\"}[$rate_window]))"}]
+    }
+  ]
+}
