@@ -135,6 +135,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Prepare environment files
+        run: |
+          cp .env.ci .env
+          cp .env.ci .env.test
+
       - name: Start stack
         run: docker compose up --build -d
 
@@ -167,6 +172,11 @@ jobs:
     needs: [test]
     steps:
       - uses: actions/checkout@v4
+
+      - name: Prepare environment files
+        run: |
+          cp .env.ci .env
+          cp .env.ci .env.test
 
       - name: Start stack
         run: docker compose up --build -d
