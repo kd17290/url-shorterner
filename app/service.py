@@ -353,13 +353,18 @@ async def create_short_url(payload: URLCreate, db: AsyncSession, cache: redis.Re
             raise ValueError(f"Custom code '{short_code}' is already taken") from exc
         else:
             # For generated codes, retry once (should never happen with proper allocator)
-            short_code = await _generate_short_code_from_allocator(cache)
-            url = URL(short_code=short_code, original_url=str(payload.url))
-            db.add(url)
-            await db.commit()
-            APP_EDGE_DB_WRITES_TOTAL.inc()
-            await db.refresh(url)
-            assert url.id is not None, "url.id must be set after commit"
+            try:
+                short_code = await _generate_short_code_from_allocator(cache)
+                url = URL(short_code=short_code, original_url=str(payload.url))
+                db.add(url)
+                await db.commit()
+                APP_EDGE_DB_WRITES_TOTAL.inc()
+                await db.refresh(url)
+                assert url.id is not None, "url.id must be set after commit"
+            except IntegrityError as retry_exc:
+                await db.rollback()
+                # Still colliding - this indicates a serious allocator issue
+                raise ValueError(f"Failed to generate unique short code after retry") from retry_exc
 
     await _cache_url(url, cache)
     return url
