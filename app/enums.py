@@ -6,7 +6,7 @@ Using enums instead of string literals provides type safety and prevents typos.
 
 from enum import StrEnum
 
-__all__ = ["HealthStatus", "ServiceStatus"]
+__all__ = ["HealthStatus", "ServiceStatus", "RequestStatus", "CacheStatus"]
 
 
 class HealthStatus(StrEnum):
@@ -39,3 +39,35 @@ class ServiceStatus(StrEnum):
             return cls(value)
         except ValueError:
             return cls.FAILED
+
+
+class RequestStatus(StrEnum):
+    """Request status values for metrics and logging."""
+
+    SUCCESS = "success"
+    VALIDATION_ERROR = "validation_error"
+    ERROR = "error"
+    NOT_FOUND = "not_found"
+
+    @classmethod
+    def from_str(cls, value: str) -> "RequestStatus":
+        """Safely parse from string, falling back to ERROR for unknown values."""
+        try:
+            return cls(value)
+        except ValueError:
+            return cls.ERROR
+
+
+class CacheStatus(StrEnum):
+    """Cache status values for metrics."""
+
+    HIT = "true"
+    MISS = "false"
+
+    @classmethod
+    def from_str(cls, value: str) -> "CacheStatus":
+        """Safely parse from string, falling back to MISS for unknown values."""
+        try:
+            return cls(value)
+        except ValueError:
+            return cls.MISS

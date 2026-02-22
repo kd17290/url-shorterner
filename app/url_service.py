@@ -196,6 +196,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import Settings, get_settings
+from app.enums import RequestStatus, CacheStatus
 from app.kafka import publish_click_event
 from app.models import URL
 from app.schemas import CachedURLPayload, URLCreate
@@ -418,7 +419,7 @@ class URLShorteningService:
             # Record success metrics
             duration = time.perf_counter() - start_time
             URL_CREATION_DURATION.observe(duration)
-            URL_CREATION_REQUESTS_TOTAL.labels(status="success").inc()
+            URL_CREATION_REQUESTS_TOTAL.labels(status=RequestStatus.SUCCESS).inc()
             self._metrics.operation_count += 1
             self._metrics.total_duration += duration
             self._metrics.database_writes += 1
@@ -429,14 +430,14 @@ class URLShorteningService:
         except ValueError as exc:
             duration = time.perf_counter() - start_time
             URL_CREATION_DURATION.observe(duration)
-            URL_CREATION_REQUESTS_TOTAL.labels(status="validation_error").inc()
+            URL_CREATION_REQUESTS_TOTAL.labels(status=RequestStatus.VALIDATION_ERROR).inc()
             self._logger.warning(f"URL creation failed: {exc}")
             raise
             
         except Exception as exc:
             duration = time.perf_counter() - start_time
             URL_CREATION_DURATION.observe(duration)
-            URL_CREATION_REQUESTS_TOTAL.labels(status="error").inc()
+            URL_CREATION_REQUESTS_TOTAL.labels(status=RequestStatus.ERROR).inc()
             self._logger.error(f"URL creation error: {exc}")
             raise
     
@@ -480,7 +481,7 @@ class URLShorteningService:
             if cached_url:
                 duration = time.perf_counter() - start_time
                 URL_LOOKUP_DURATION.observe(duration)
-                URL_LOOKUP_REQUESTS_TOTAL.labels(status="success", cache_hit="true").inc()
+                URL_LOOKUP_REQUESTS_TOTAL.labels(status=RequestStatus.SUCCESS, cache_hit=CacheStatus.HIT).inc()
                 CACHE_HITS_TOTAL.inc()
                 self._metrics.cache_hits += 1
                 self._update_cache_hit_rate()
@@ -517,7 +518,7 @@ class URLShorteningService:
         except Exception as exc:
             duration = time.perf_counter() - start_time
             URL_LOOKUP_DURATION.observe(duration)
-            URL_LOOKUP_REQUESTS_TOTAL.labels(status="error", cache_hit="false").inc()
+            URL_LOOKUP_REQUESTS_TOTAL.labels(status=RequestStatus.ERROR, cache_hit=CacheStatus.MISS).inc()
             self._logger.error(f"URL lookup error for {short_code}: {exc}")
             raise
     
