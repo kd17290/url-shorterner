@@ -97,7 +97,7 @@ Endpoints:
     /:code:  Redirect to original URL.
 """
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from fastapi.responses import RedirectResponse
 from sqlalchemy import text
 
@@ -150,15 +150,42 @@ async def shorten_url(
     ctx = Depends(get_request_context),
     service: URLShorteningService = Depends(get_url_service),
 ) -> URLResponse:
-    ctx.logger.info(f"URL shortening requested: {payload.url}")
+    # Add context tags for better observability
+    ctx.add_tag("url_creation")
+    ctx.add_tag("api_endpoint")
+    
+    ctx.logger.info(
+        f"URL shortening requested: {payload.url}",
+        extra={
+            "operation": "create_short_url",
+            "target_url": payload.url,
+            "custom_code": payload.custom_code
+        }
+    )
+    
     try:
         url = await service.create_short_url(payload)
-        ctx.logger.info(f"URL shortened successfully: {url.short_code}")
+        ctx.logger.info(
+            f"URL shortened successfully: {url.short_code}",
+            extra={
+                "operation": "create_short_url",
+                "short_code": url.short_code,
+                "url_id": url.id,
+                "duration_ms": ctx.get_duration()
+            }
+        )
     except ValueError as exc:
-        ctx.logger.warning(f"URL shortening failed: {exc}")
+        ctx.logger.warning(
+            f"URL shortening failed: {exc}",
+            extra={
+                "operation": "create_short_url",
+                "error": str(exc),
+                "duration_ms": ctx.get_duration()
+            }
+        )
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
-    return URLResponse(
+    response = URLResponse(
         id=url.id,
         short_code=url.short_code,
         original_url=url.original_url,
@@ -166,6 +193,14 @@ async def shorten_url(
         clicks=url.clicks,
         created_at=url.created_at,
         updated_at=url.updated_at,
+    )
+    
+    # Add context headers to response
+    return Response(
+        content=response.model_dump_json(),
+        media_type="application/json",
+        status_code=201,
+        headers=ctx.get_context_headers()
     )
 
 
@@ -198,14 +233,50 @@ async def redirect_to_url(
     ctx = Depends(get_request_context),
     service: URLShorteningService = Depends(get_url_service),
 ) -> RedirectResponse:
-    ctx.logger.info(f"Redirect requested for short code: {short_code}")
+    # Add context tags for better observability
+    ctx.add_tag("redirect")
+    ctx.add_tag("lookup")
+    
+    ctx.logger.info(
+        f"Redirect requested for short code: {short_code}",
+        extra={
+            "operation": "redirect",
+            "short_code": short_code,
+            "user_agent": ctx.user_agent,
+            "client_ip": ctx.client_ip
+        }
+    )
+    
     # cache_read → replica (read-only GET lookup, hot path)
     # cache_write → primary (INCR click buffer, XADD fallback stream)
     url = await service.lookup_url_by_code(short_code)
     if not url:
-        ctx.logger.warning(f"Redirect failed - short code not found: {short_code}")
+        ctx.logger.warning(
+            f"Redirect failed - short code not found: {short_code}",
+            extra={
+                "operation": "redirect",
+                "short_code": short_code,
+                "error": "not_found",
+                "duration_ms": ctx.get_duration()
+            }
+        )
         raise HTTPException(status_code=404, detail="Short URL not found")
 
     await service.track_url_click(url)
-    ctx.logger.info(f"Redirect successful: {short_code} -> {url.original_url}")
-    return RedirectResponse(url=url.original_url, status_code=307)
+    
+    ctx.logger.info(
+        f"Redirect successful: {short_code} -> {url.original_url}",
+        extra={
+            "operation": "redirect",
+            "short_code": short_code,
+            "target_url": url.original_url,
+            "url_id": url.id,
+            "duration_ms": ctx.get_duration()
+        }
+    )
+    
+    # Create redirect response with context headers
+    response = RedirectResponse(url=url.original_url, status_code=307)
+    # Add context headers to response for downstream services
+    response.headers.update(ctx.get_context_headers())
+    return response

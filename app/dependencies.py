@@ -6,11 +6,13 @@ shared resources to minimize per-request overhead.
 """
 
 import logging
-from dataclasses import dataclass
+import time
+import uuid
+from dataclasses import dataclass, field
 from typing import Optional
 
 import redis.asyncio as redis
-from fastapi import Depends
+from fastapi import Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
@@ -98,13 +100,31 @@ _service_manager = ServiceManager()
 
 @dataclass
 class RequestContext:
-    """Lightweight context per request with only request-specific data.
+    """Comprehensive request context with tracking and observability.
     
-    Only the database session varies per request. All other resources
-    are shared through the singleton service manager.
+    This context provides complete request lifecycle tracking with
+    unique identifiers, timing information, and shared resource access.
+    
+    Attributes:
+        database: Async database session (only per-request resource)
+        service_manager: Singleton service manager with shared resources
+        request_id: Unique identifier for this request
+        trace_id: Correlation ID for distributed tracing
+        user_agent: Client user agent string
+        client_ip: Client IP address
+        start_time: Request start timestamp
+        parent_request_id: Parent request ID for nested calls
+        tags: Request tags for categorization
     """
     database: AsyncSession
     service_manager: ServiceManager
+    request_id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    trace_id: Optional[str] = None
+    user_agent: Optional[str] = None
+    client_ip: Optional[str] = None
+    start_time: float = field(default_factory=lambda: time.time())
+    parent_request_id: Optional[str] = None
+    tags: list[str] = field(default_factory=list)
     
     @property
     def cache_writer(self) -> redis.Redis:
@@ -118,13 +138,45 @@ class RequestContext:
     
     @property
     def logger(self) -> logging.Logger:
-        """Get shared logger."""
-        return self.service_manager.logger
+        """Get shared logger with request context."""
+        logger = self.service_manager.logger
+        # Add request context to all log messages
+        return self._add_context_to_logger(logger)
     
     @property
     def settings(self):
         """Get shared settings."""
         return self.service_manager.settings
+    
+    def _add_context_to_logger(self, logger: logging.Logger) -> logging.Logger:
+        """Add request context to logger for structured logging."""
+        # Create a logger adapter that adds context to all messages
+        return logging.LoggerAdapter(logger, {
+            'request_id': self.request_id,
+            'trace_id': self.trace_id or self.request_id,
+            'client_ip': self.client_ip,
+            'user_agent': self.user_agent,
+            'tags': ','.join(self.tags)
+        })
+    
+    def add_tag(self, tag: str) -> None:
+        """Add a tag to the request context."""
+        if tag not in self.tags:
+            self.tags.append(tag)
+    
+    def get_duration(self) -> float:
+        """Get request duration in milliseconds."""
+        return (time.time() - self.start_time) * 1000
+    
+    def get_context_headers(self) -> dict[str, str]:
+        """Get context headers for downstream services."""
+        headers = {
+            'X-Request-ID': self.request_id,
+            'X-Trace-ID': self.trace_id or self.request_id,
+        }
+        if self.parent_request_id:
+            headers['X-Parent-Request-ID'] = self.parent_request_id
+        return headers
 
 
 # ============================================================================
@@ -145,32 +197,43 @@ async def get_service_manager() -> ServiceManager:
 async def get_request_context(
     db: AsyncSession = Depends(get_db),
     manager: ServiceManager = Depends(get_service_manager),
+    request: Request = Depends(),
 ) -> RequestContext:
-    """Lightweight request context with shared resources.
+    """Comprehensive request context with tracking and observability.
     
     Args:
         db: Database session (only per-request resource)
         manager: Singleton service manager with shared resources
+        request: FastAPI Request object for extracting client info
         
     Returns:
-        RequestContext: Lightweight context for the request
+        RequestContext: Comprehensive context for the request
     """
-    return RequestContext(database=db, service_manager=manager)
+    # Extract client information from request
+    client_ip = request.client.host if request.client else None
+    user_agent = request.headers.get("user-agent")
+    
+    # Extract trace ID from headers (for distributed tracing)
+    trace_id = request.headers.get("x-trace-id") or request.headers.get("x-trace-id")
+    parent_request_id = request.headers.get("x-parent-request-id")
+    
+    return RequestContext(
+        database=db,
+        service_manager=manager,
+        trace_id=trace_id,
+        user_agent=user_agent,
+        client_ip=client_ip,
+        parent_request_id=parent_request_id
+    )
 
 
 def get_url_service(ctx: RequestContext = Depends(get_request_context)) -> URLShorteningService:
-    """Create URL service with optimized context.
+    """Create URL service with comprehensive context using factory pattern.
     
     Args:
-        ctx: Request context with shared resources
+        ctx: Request context with shared resources and tracking
         
     Returns:
         URLShorteningService: Service instance with embedded context
     """
-    return URLShorteningService(
-        database=ctx.database,
-        cache_writer=ctx.cache_writer,
-        cache_reader=ctx.cache_reader,
-        logger=ctx.logger,
-        settings=ctx.settings
-    )
+    return URLShorteningService.from_context(ctx)

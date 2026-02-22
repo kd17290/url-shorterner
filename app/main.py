@@ -85,8 +85,10 @@ __all__ = ["app"]
 
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from typing import Callable
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, Response
+from fastapi.middleware.base import BaseHTTPMiddleware
 from fastapi.middleware.cors import CORSMiddleware
 from prometheus_fastapi_instrumentator import Instrumentator
 
@@ -96,6 +98,22 @@ from app.dependencies import _service_manager
 from app.kafka import close_kafka, init_kafka
 from app.redis import close_redis
 from app.routes import router
+
+class RequestContextMiddleware(BaseHTTPMiddleware):
+    """Middleware to add request context headers to all responses."""
+    
+    async def dispatch(self, request: Request, call_next: Callable) -> Response:
+        response = await call_next(request)
+        
+        # Add context headers if they exist in the response
+        # This ensures all responses have tracing information
+        if hasattr(request.state, 'request_id'):
+            response.headers['X-Request-ID'] = request.state.request_id
+        if hasattr(request.state, 'trace_id'):
+            response.headers['X-Trace-ID'] = request.state.trace_id
+        
+        return response
+
 
 settings = get_settings()
 
@@ -117,9 +135,12 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 app = FastAPI(
     title=settings.APP_NAME,
     version="1.0.0",
-    description="A modern, scalable URL shortener API",
+    description="A modern, scalable URL shortener API with comprehensive observability",
     lifespan=lifespan,
 )
+
+# Add context middleware for tracing
+app.add_middleware(RequestContextMiddleware)
 
 app.add_middleware(
     CORSMiddleware,

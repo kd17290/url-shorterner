@@ -332,34 +332,44 @@ class URLShorteningService:
     - Graceful error handling and fallbacks
     
     Example:
-        >>> service = URLShorteningService(database, cache_writer, cache_reader, logger, settings)
+        >>> ctx = RequestContext(database=db, service_manager=manager, ...)
+        >>> service = URLShorteningService.from_context(ctx)
         >>> url = await service.create_short_url(URLCreate(url="https://example.com"))
         >>> print(f"Shortened: {url.short_code}")
     """
     
-    def __init__(
-        self,
-        database: AsyncSession,
-        cache_writer: redis.Redis,
-        cache_reader: redis.Redis,
-        logger: logging.Logger,
-        settings: Settings
-    ):
-        """Initialize service with individual dependencies.
+    def __init__(self, ctx: 'RequestContext'):
+        """Initialize service with comprehensive context.
+        
+        This is the preferred constructor that takes a RequestContext
+        containing all required dependencies and tracking information.
         
         Args:
-            database: Async database session for operations
-            cache_writer: Primary Redis client for write operations
-            cache_reader: Read-only Redis client for read operations
-            logger: Structured logger for application logging
-            settings: Application configuration settings
+            ctx: Request context with all required dependencies
         """
-        self._db = database
-        self._cache_write = cache_writer
-        self._cache_read = cache_reader
-        self._logger = logger
-        self._settings = settings
+        self._db = ctx.database
+        self._cache_write = ctx.cache_writer
+        self._cache_read = ctx.cache_reader
+        self._logger = ctx.logger
+        self._settings = ctx.settings
         self._metrics = PerformanceMetrics()
+        self._ctx = ctx
+    
+    @classmethod
+    def from_context(cls, ctx: 'RequestContext') -> 'URLShorteningService':
+        """Factory method to create service from RequestContext.
+        
+        This is the preferred way to create service instances as it
+        automatically extracts all dependencies from the context and
+        maintains the context reference for tracking.
+        
+        Args:
+            ctx: Request context with all required dependencies
+            
+        Returns:
+            URLShorteningService: Service instance with embedded context
+        """
+        return cls(ctx)
     
     # ========================================================================
     # PUBLIC API METHODS
@@ -996,70 +1006,3 @@ class ServicePerformanceMonitor:
         }
 
 
-# ============================================================================
-# FUTURE ROADMAP IMPLEMENTATIONS
-# ============================================================================
-
-class AdvancedURLService(URLShorteningService):
-    """Enhanced service with advanced features for future scalability.
-    
-    This class demonstrates the roadmap for advanced features:
-    - Request rate limiting
-    - Circuit breakers for external services
-    - Advanced caching strategies
-    - Performance auto-tuning
-    """
-    
-    async def create_short_url_with_rate_limit(self, request: URLCreate, client_ip: str) -> URL:
-        """Create short URL with rate limiting protection.
-        
-        Args:
-            request: URL creation request
-            client_ip: Client IP address for rate limiting
-            
-        Returns:
-            URL: Created URL model
-            
-        Raises:
-            HTTPException: If rate limit exceeded
-        """
-        # TODO: Implement rate limiting logic
-        # - Check Redis for client request count
-        # - Apply sliding window algorithm
-        # - Return 429 if limit exceeded
-        
-        return await self.create_short_url(request)
-    
-    async def batch_create_urls(self, requests: list[URLCreate]) -> list[URL]:
-        """Create multiple URLs in a single transaction for better performance.
-        
-        Args:
-            requests: List of URL creation requests
-            
-        Returns:
-            list[URL]: List of created URL models
-        """
-        # TODO: Implement batch creation
-        # - Use database transaction
-        # - Batch cache operations
-        # - Optimize for high throughput
-        
-        results = []
-        for request in requests:
-            url = await self.create_short_url(request)
-            results.append(url)
-        return results
-    
-    async def get_analytics_dashboard_data(self) -> dict:
-        """Get comprehensive analytics data for dashboard.
-        
-        Returns:
-            dict: Analytics data including top URLs, click patterns, etc.
-        """
-        # TODO: Implement analytics aggregation
-        # - Top URLs by clicks
-        # - Click patterns over time
-        # - Geographic distribution
-        # - Device/browser statistics
-        
-        return {"status": "coming_soon"}
