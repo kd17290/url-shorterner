@@ -19,9 +19,7 @@ from app.schemas import URLCreate
 from app.url_service import (
     URLShorteningService,
     PerformanceMetrics,
-    ServicePerformanceMonitor,
     BASE62_ALPHABET,
-    generate_random_short_code,
     _base62_encode,
 )
 
@@ -128,24 +126,6 @@ def test_base62_encode_negative():
         _base62_encode(-1)
 
 
-def test_generate_random_short_code_default():
-    """Test random short code generation with default length."""
-    code = generate_random_short_code()
-    assert len(code) == 8
-    assert all(c in BASE62_ALPHABET for c in code)
-
-
-def test_generate_random_short_code_custom_length():
-    """Test random short code generation with custom length."""
-    code = generate_random_short_code(length=12)
-    assert len(code) == 12
-    assert all(c in BASE62_ALPHABET for c in code)
-
-
-def test_generate_random_short_code_uniqueness():
-    """Test uniqueness of generated short codes."""
-    codes = {generate_random_short_code() for _ in range(1000)}
-    assert len(codes) == 1000  # All should be unique
 
 
 # ============================================================================
@@ -421,23 +401,7 @@ class TestPerformanceMonitoring:
         assert metrics.average_duration == 0.025
         assert metrics.cache_hit_rate == 95.0
     
-    def test_service_performance_monitor(self, url_service):
-        """Test service performance monitor."""
-        monitor = ServicePerformanceMonitor(url_service)
-        
-        # Simulate some operations
-        url_service._metrics.operation_count = 50
-        url_service._metrics.total_duration = 1.5
-        url_service._metrics.cache_hits = 45
-        url_service._metrics.cache_misses = 5
-        
-        report = monitor.get_performance_report()
-        
-        assert report["operations_total"] == 50
-        assert report["average_duration_ms"] == 30.0
-        assert report["cache_hit_rate_percent"] == 90.0
-        assert "uptime_seconds" in report
-
+    
 
 # ============================================================================
 # INTEGRATION TESTS

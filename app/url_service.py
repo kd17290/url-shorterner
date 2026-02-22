@@ -207,7 +207,6 @@ from app.schemas import CachedURLPayload, URLCreate
 
 BASE62_ALPHABET = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
 DEFAULT_CACHE_TTL_SECONDS = 3600  # 1 hour
-DEFAULT_SHORT_CODE_LENGTH = 8
 
 # Global state for ID allocation (shared across instances)
 _id_allocation_next: int = 0
@@ -940,69 +939,4 @@ def _base62_encode(number: int) -> str:
         number, remainder = divmod(number, base)
         result.append(BASE62_ALPHABET[remainder])
     
-    return "".join(reversed(result))
-
-
-def generate_random_short_code(length: Optional[int] = None) -> str:
-    """Generate a random short code using nanoid.
-    
-    This function generates cryptographically secure random short codes
-    suitable for direct use or as fallbacks.
-    
-    Args:
-        length: Optional length of the short code (defaults to DEFAULT_SHORT_CODE_LENGTH)
-        
-    Returns:
-        str: Generated random short code
-        
-    Example:
-        >>> generate_random_short_code(8)
-        'aB3xY9zZ'
-    """
-    if length is None:
-        length = DEFAULT_SHORT_CODE_LENGTH
-    return generate(BASE62_ALPHABET, length)
-
-
-# ============================================================================
-# PERFORMANCE MONITORING
-# ============================================================================
-
-class ServicePerformanceMonitor:
-    """Performance monitoring utility for service operations.
-    
-    This class provides comprehensive performance tracking and reporting
-    for URL shortening service operations.
-    """
-    
-    def __init__(self, service: URLShorteningService):
-        """Initialize performance monitor.
-        
-        Args:
-            service: URL shortening service to monitor
-        """
-        self._service = service
-        self._start_time = time.time()
-    
-    def get_performance_report(self) -> dict:
-        """Get comprehensive performance report.
-        
-        Returns:
-            dict: Performance metrics and statistics
-        """
-        metrics = self._service._metrics
-        uptime = time.time() - self._start_time
-        
-        return {
-            "uptime_seconds": uptime,
-            "operations_total": metrics.operation_count,
-            "average_duration_ms": metrics.average_duration * 1000,
-            "cache_hit_rate_percent": metrics.cache_hit_rate,
-            "cache_hits": metrics.cache_hits,
-            "cache_misses": metrics.cache_misses,
-            "database_reads": metrics.database_reads,
-            "database_writes": metrics.database_writes,
-            "operations_per_second": metrics.operation_count / max(uptime, 1),
-        }
-
-
+    return "".join(result[::-1])

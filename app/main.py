@@ -88,7 +88,7 @@ from contextlib import asynccontextmanager
 from typing import Callable
 
 from fastapi import FastAPI, Request, Response
-from fastapi.middleware.base import BaseHTTPMiddleware
+from fastapi.middleware import Middleware
 from fastapi.middleware.cors import CORSMiddleware
 from prometheus_fastapi_instrumentator import Instrumentator
 
@@ -99,20 +99,31 @@ from app.kafka import close_kafka, init_kafka
 from app.redis import close_redis
 from app.routes import router
 
-class RequestContextMiddleware(BaseHTTPMiddleware):
+class RequestContextMiddleware:
     """Middleware to add request context headers to all responses."""
     
-    async def dispatch(self, request: Request, call_next: Callable) -> Response:
-        response = await call_next(request)
+    def __init__(self, app):
+        self.app = app
+    
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
         
-        # Add context headers if they exist in the response
-        # This ensures all responses have tracing information
-        if hasattr(request.state, 'request_id'):
-            response.headers['X-Request-ID'] = request.state.request_id
-        if hasattr(request.state, 'trace_id'):
-            response.headers['X-Trace-ID'] = request.state.trace_id
+        request = Request(scope, receive)
         
-        return response
+        async def send_wrapper(message):
+            if message["type"] == "http.response.start":
+                # Add context headers if they exist
+                headers = dict(message.get("headers", []))
+                if hasattr(request.state, 'request_id'):
+                    headers.append((b"x-request-id", request.state.request_id.encode()))
+                if hasattr(request.state, 'trace_id'):
+                    headers.append((b"x-trace-id", request.state.trace_id.encode()))
+                message["headers"] = headers
+            await send(message)
+        
+        await self.app(scope, receive, send_wrapper)
 
 
 settings = get_settings()

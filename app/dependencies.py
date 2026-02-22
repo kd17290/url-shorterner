@@ -195,9 +195,9 @@ async def get_service_manager() -> ServiceManager:
 
 
 async def get_request_context(
+    request: Request,
     db: AsyncSession = Depends(get_db),
     manager: ServiceManager = Depends(get_service_manager),
-    request: Request = Depends(),
 ) -> RequestContext:
     """Comprehensive request context with tracking and observability.
     
