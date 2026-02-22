@@ -2,7 +2,6 @@
 ///
 /// These enums provide type safety for status fields across the codebase.
 /// They serialize to strings for JSON compatibility with the Python stack.
-
 use serde::{Deserialize, Serialize};
 
 /// Health check status values.

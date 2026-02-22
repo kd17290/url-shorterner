@@ -146,11 +146,12 @@ pub async fn health(State(state): State<Arc<AppState>>) -> Json<HealthResponse> 
         }
     };
 
-    let overall_status = if db_status == HealthStatus::Healthy && cache_status == HealthStatus::Healthy {
-        HealthStatus::Healthy
-    } else {
-        HealthStatus::Unhealthy
-    };
+    let overall_status =
+        if db_status == HealthStatus::Healthy && cache_status == HealthStatus::Healthy {
+            HealthStatus::Healthy
+        } else {
+            HealthStatus::Unhealthy
+        };
 
     Json(HealthResponse {
         status: overall_status,
@@ -223,8 +224,13 @@ pub async fn shorten(
         Ok(u) => u,
         Err(e) => {
             // Check if it's a uniqueness constraint violation
-            if e.to_string().contains("unique constraint") || e.to_string().contains("duplicate key") {
-                tracing::warn!("Collision detected for short_code: {}, retrying...", short_code);
+            if e.to_string().contains("unique constraint")
+                || e.to_string().contains("duplicate key")
+            {
+                tracing::warn!(
+                    "Collision detected for short_code: {}, retrying...",
+                    short_code
+                );
 
                 if payload.custom_code.is_some() {
                     // Custom code collision - real error
@@ -242,13 +248,14 @@ pub async fn shorten(
                             return StatusCode::SERVICE_UNAVAILABLE.into_response();
                         }
                     };
-                    let retry_code = match crate::keygen::encode_id(retry_id, state.config.short_code_length) {
-                        Ok(code) => code,
-                        Err(e) => {
-                            tracing::error!("encode_id retry error: {e}");
-                            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
-                        }
-                    };
+                    let retry_code =
+                        match crate::keygen::encode_id(retry_id, state.config.short_code_length) {
+                            Ok(code) => code,
+                            Err(e) => {
+                                tracing::error!("encode_id retry error: {e}");
+                                return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+                            }
+                        };
 
                     // Retry insertion
                     match sqlx::query_as(
