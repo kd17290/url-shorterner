@@ -464,7 +464,7 @@ class TestServiceIntegration:
         url_service._cache_write.delete.return_value = True
 
         # Mock the cache_url_object method to avoid validation errors
-        async def mock_cache_url_object(url):
+        async def mock_cache_url_object(url, cache=None):
             pass
 
         url_service._cache_url_object = mock_cache_url_object
@@ -501,9 +501,9 @@ class TestServiceIntegration:
             await url_service.track_url_click(looked_up_url)
 
         # Verify all operations were called
-        assert url_service._db.add.assert_called_once()
-        assert url_service._db.commit.assert_called()
-        assert url_service._cache_write.incr.assert_called_once()
+        url_service._db.add.assert_called_once()
+        url_service._db.commit.assert_called()
+        url_service._cache_write.incr.assert_called_once()
 
 
 # ============================================================================

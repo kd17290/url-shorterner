@@ -181,6 +181,7 @@ jobs:
             --env-file .env.ci \
             -e DATABASE_URL=postgresql+asyncpg://test:test@urlshortener-db-test:5432/urlshortener_test \
             -e REDIS_URL=redis://urlshortener-redis-test:6379/0 \
+            -e REDIS_REPLICA_URL=redis://urlshortener-redis-test:6379/0 \
             -v "$PWD":/work -w /work \
             python:3.12-slim bash -lc \
             "pip install --no-cache-dir -r requirements.txt >/dev/null && \

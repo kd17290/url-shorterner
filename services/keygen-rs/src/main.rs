@@ -125,7 +125,7 @@ async fn allocate(
 ) -> Response {
     let size = req.size.unwrap_or(state.config.id_block_size);
     let stack = req.stack.unwrap_or_else(|| "rust".to_string());
-    
+
     if size <= 0 {
         return (
             StatusCode::BAD_REQUEST,
@@ -133,7 +133,7 @@ async fn allocate(
         )
             .into_response();
     }
-    
+
     if !["python", "rust"].contains(&stack.as_str()) {
         return (
             StatusCode::BAD_REQUEST,

@@ -225,7 +225,7 @@ pub async fn shorten(
             // Check if it's a uniqueness constraint violation
             if e.to_string().contains("unique constraint") || e.to_string().contains("duplicate key") {
                 tracing::warn!("Collision detected for short_code: {}, retrying...", short_code);
-                
+
                 if payload.custom_code.is_some() {
                     // Custom code collision - real error
                     return (
@@ -249,7 +249,7 @@ pub async fn shorten(
                             return StatusCode::INTERNAL_SERVER_ERROR.into_response();
                         }
                     };
-                    
+
                     // Retry insertion
                     match sqlx::query_as(
                         r#"
