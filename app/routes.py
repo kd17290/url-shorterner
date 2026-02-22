@@ -97,7 +97,7 @@ Endpoints:
     /:code:  Redirect to original URL.
 """
 
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import RedirectResponse
 from sqlalchemy import text
 
@@ -185,7 +185,7 @@ async def shorten_url(
         )
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
-    response = URLResponse(
+    return URLResponse(
         id=url.id,
         short_code=url.short_code,
         original_url=url.original_url,
@@ -193,14 +193,6 @@ async def shorten_url(
         clicks=url.clicks,
         created_at=url.created_at,
         updated_at=url.updated_at,
-    )
-    
-    # Add context headers to response
-    return Response(
-        content=response.model_dump_json(),
-        media_type="application/json",
-        status_code=201,
-        headers=ctx.get_context_headers()
     )
 
 
@@ -275,8 +267,4 @@ async def redirect_to_url(
         }
     )
     
-    # Create redirect response with context headers
-    response = RedirectResponse(url=url.original_url, status_code=307)
-    # Add context headers to response for downstream services
-    response.headers.update(ctx.get_context_headers())
-    return response
+    return RedirectResponse(url=url.original_url, status_code=307)
