@@ -1,0 +1,119 @@
+version: '3.8'
+
+services:
+  # PostgreSQL for testing
+  postgres-test:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: url_shortener_test
+      POSTGRES_USER: test_user
+      POSTGRES_PASSWORD: test_password
+    ports:
+      - "5433:5432"
+    volumes:
+      - ./test-postgres-init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U test_user -d url_shortener_test"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Redis for testing
+  redis-test:
+    image: redis:7-alpine
+    ports:
+      - "6380:6379"
+    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Redis Sentinel for testing
+  redis-sentinel-test:
+    image: redis:7-alpine
+    ports:
+      - "26380:26379"
+    command: |
+      sh -c "
+      echo 'port 26379
+      sentinel monitor redis-master redis-test 6379 2
+      sentinel down-after-milliseconds redis-master 5000
+      sentinel failover-timeout redis-master 10000
+      sentinel parallel-syncs redis-master 1
+      sentinel announce-ip redis-sentinel-test
+      sentinel announce-port 26379' > /etc/redis/sentinel.conf &&
+      redis-sentinel /etc/redis/sentinel.conf
+      "
+    depends_on:
+      redis-test:
+        condition: service_healthy
+
+  # Keygen Service Test Instance
+  keygen-test:
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://test_user:test_password@postgres-test:5432/url_shortener_test
+      - REDIS_SENTINEL_HOSTS=redis-sentinel-test:26379
+      - REDIS_MASTER_NAME=redis-master
+      - LOG_LEVEL=DEBUG
+      - PYTHONPATH=/app
+    ports:
+      - "8001:8000"
+    depends_on:
+      postgres-test:
+        condition: service_healthy
+      redis-test:
+        condition: service_healthy
+      redis-sentinel-test:
+        condition: service_started
+    volumes:
+      - ./services:/app/services
+      - ./apps:/app/apps
+      - ./tests:/app/tests
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Benchmark Runner
+  benchmark-runner:
+    build:
+      context: .
+      dockerfile: Dockerfile.benchmark
+    environment:
+      - KEYGEN_SERVICE_URL=http://keygen-test:8000
+      - REDIS_URL=redis://redis-test:6379
+      - POSTGRES_URL=postgresql+asyncpg://test_user:test_password@postgres-test:5432/url_shortener_test
+    depends_on:
+      keygen-test:
+        condition: service_healthy
+    volumes:
+      - ./benchmark_results:/app/results
+      - ./tests:/app/tests
+    command: tail -f /dev/null  # Keep container running for manual test execution
+
+  # Load Generator for Stress Testing
+  load-generator:
+    build:
+      context: .
+      dockerfile: Dockerfile.loadgen
+    environment:
+      - TARGET_SERVICE=http://keygen-test:8000
+      - CONCURRENT_REQUESTS=100
+      - TEST_DURATION=300
+    depends_on:
+      keygen-test:
+        condition: service_healthy
+    profiles:
+      - stress
+    volumes:
+      - ./load_test_results:/app/results
+
+networks:
+  default:
+    name: keygen-test-net
