@@ -1,0 +1,32 @@
+# Pre-commit hooks — mirrors the CI pipeline so errors are caught locally.
+# Install: pip install pre-commit && pre-commit install
+# Run all: pre-commit run --all-files
+
+repos:
+  # ── Python formatting (matches CI: black==24.1.1, isort==5.13.2) ──────
+  - repo: https://github.com/psf/black
+    rev: 24.1.1
+    hooks:
+      - id: black
+
+  - repo: https://github.com/pycqa/isort
+    rev: 5.13.2
+    hooks:
+      - id: isort
+
+  # ── Python linting (matches CI: ruff==0.3.0) ──────────────────────────
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.3.0
+    hooks:
+      - id: ruff
+        args:
+          - --select=E,W,F,UP,B,C4,SIM,RUF
+          - --ignore=B008,UP011,E501,W293
+          - --fix
+
+  # ── Rust formatting ────────────────────────────────────────────────────
+  - repo: https://github.com/doublify/pre-commit-rust
+    rev: v1.0
+    hooks:
+      - id: fmt
+        args: ["--all", "--", "--check"]

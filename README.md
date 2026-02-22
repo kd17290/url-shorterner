@@ -13,6 +13,21 @@ make up
 
 That's it. The API is available via load balancer at `http://localhost:8080`.
 
+## Developer Setup
+
+```bash
+# Install pre-commit hooks (mirrors CI: black, isort, ruff, rustfmt)
+bash scripts/setup-hooks.sh
+```
+
+Hooks run automatically on every `git commit`. To run manually:
+
+```bash
+pre-commit run --all-files
+```
+
+> **Note:** pyright is not in the hook (too slow). Run it manually before pushing: `pyright`
+
 ## Architecture
 
 ```text
