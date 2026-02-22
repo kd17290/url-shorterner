@@ -174,6 +174,33 @@ APP_EDGE_REDIS_OPS_TOTAL = Counter(
     "app_edge_redis_ops_total",
     "Redis cache operations initiated by app service",
 )
+APP_EDGE_CACHE_HITS_TOTAL = Counter(
+    "app_edge_cache_hits_total",
+    "Cache hits for URL lookups",
+)
+APP_EDGE_CACHE_MISSES_TOTAL = Counter(
+    "app_edge_cache_misses_total",
+    "Cache misses for URL lookups",
+)
+APP_EDGE_CACHE_HIT_RATE = Gauge(
+    "app_edge_cache_hit_rate",
+    "Cache hit rate percentage",
+)
+
+
+def _update_cache_hit_rate() -> None:
+    """Update cache hit rate gauge based on current metrics."""
+    hits = APP_EDGE_CACHE_HITS_TOTAL._value._value
+    misses = APP_EDGE_CACHE_MISSES_TOTAL._value._value
+    total = hits + misses
+    
+    if total > 0:
+        hit_rate = (hits / total) * 100
+        APP_EDGE_CACHE_HIT_RATE.set(hit_rate)
+    else:
+        APP_EDGE_CACHE_HIT_RATE.set(0.0)
+
+
 APP_EDGE_KAFKA_PUBLISH_TOTAL = Counter(
     "app_edge_kafka_publish_total",
     "Kafka click events successfully published by app service",
@@ -304,8 +331,13 @@ async def get_url_by_code(
     cached = await cache.get(cache_key)
     APP_EDGE_REDIS_OPS_TOTAL.inc()
     if cached:
+        APP_EDGE_CACHE_HITS_TOTAL.inc()
+        _update_cache_hit_rate()
         data = json.loads(cached)
         return URL(**data)
+    
+    APP_EDGE_CACHE_MISSES_TOTAL.inc()
+    _update_cache_hit_rate()
 
     acquired_lock = await _acquire_cache_lock(_write, short_code)
     if not acquired_lock:
@@ -313,6 +345,8 @@ async def get_url_by_code(
             await asyncio.sleep(settings.CACHE_LOCK_RETRY_DELAY_SECONDS)
             cached_retry = await cache.get(cache_key)
             if cached_retry:
+                APP_EDGE_CACHE_HITS_TOTAL.inc()
+                _update_cache_hit_rate()
                 data = json.loads(cached_retry)
                 return URL(**data)
 
