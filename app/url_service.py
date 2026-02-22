@@ -591,7 +591,7 @@ class URLShorteningService:
             
             # Record metrics
             duration = time.perf_counter() - start_time
-            URL_REDIRECT_REQUESTS_TOTAL.inc()
+            # URL_REDIRECT_REQUESTS_TOTAL.inc()
             self._logger.debug(f"Click tracked for {url.short_code} in {duration:.3f}s")
             
         except Exception as exc:
@@ -619,7 +619,7 @@ class URLShorteningService:
             existing = await self._db.execute(
                 select(URL).where(URL.short_code == request.custom_code)
             )
-            DATABASE_READS_TOTAL.inc()
+            # DATABASE_READS_TOTAL.inc()
             self._metrics.database_reads += 1
             
             if existing.scalar_one_or_none():
@@ -676,7 +676,7 @@ class URLShorteningService:
         """
         cache_key = f"url:{short_code}"
         cached_data = await self._cache_read.get(cache_key)
-        REDIS_OPERATIONS_TOTAL.inc()
+        # REDIS_OPERATIONS_TOTAL.inc()
         
         if cached_data:
             try:
@@ -704,7 +704,7 @@ class URLShorteningService:
             Optional[URL]: URL from database if found
         """
         result = await self._db.execute(select(URL).where(URL.short_code == short_code))
-        DATABASE_READS_TOTAL.inc()
+        # DATABASE_READS_TOTAL.inc()
         self._metrics.database_reads += 1
         return result.scalar_one_or_none()
     
@@ -724,7 +724,7 @@ class URLShorteningService:
             DEFAULT_CACHE_TTL_SECONDS,
             payload.model_dump_json()
         )
-        REDIS_OPERATIONS_TOTAL.inc()
+        # REDIS_OPERATIONS_TOTAL.inc()
     
     async def _increment_click_buffer(self, short_code: str) -> None:
         """Increment click buffer in Redis (atomic operation).
@@ -734,7 +734,7 @@ class URLShorteningService:
         """
         buffer_key = f"{self._settings.CLICK_BUFFER_KEY_PREFIX}:{short_code}"
         buffered_count = await self._cache_write.incr(buffer_key)
-        REDIS_OPERATIONS_TOTAL.inc()
+        # REDIS_OPERATIONS_TOTAL.inc()
         
         # Set TTL on first increment to prevent memory leaks
         if buffered_count == 1:
@@ -742,7 +742,7 @@ class URLShorteningService:
                 buffer_key, 
                 self._settings.CLICK_BUFFER_TTL_SECONDS
             )
-            REDIS_OPERATIONS_TOTAL.inc()
+            # REDIS_OPERATIONS_TOTAL.inc()
     
     async def _publish_click_event(self, short_code: str) -> None:
         """Publish click event to Kafka with fallback handling.
@@ -753,7 +753,8 @@ class URLShorteningService:
         try:
             published = await publish_click_event(short_code, 1)
             if published:
-                KAFKA_EVENTS_PUBLISHED_TOTAL.inc()
+                # KAFKA_EVENTS_PUBLISHED_TOTAL.inc()
+                pass
             else:
                 await self._handle_kafka_failure(short_code)
         except Exception as exc:
@@ -766,7 +767,7 @@ class URLShorteningService:
         Args:
             short_code: Short code that was clicked
         """
-        KAFKA_EVENTS_FAILED_TOTAL.inc()
+        # KAFKA_EVENTS_FAILED_TOTAL.inc()
         
         # Fallback to Redis stream
         try:
@@ -778,7 +779,7 @@ class URLShorteningService:
                     "timestamp": str(time.time()),
                 },
             )
-            REDIS_OPERATIONS_TOTAL.inc()
+            # REDIS_OPERATIONS_TOTAL.inc()
             self._logger.debug(f"Click event stored in Redis stream for {short_code}")
         except Exception as exc:
             self._logger.error(f"Redis stream fallback failed for {short_code}: {exc}")
@@ -794,7 +795,7 @@ class URLShorteningService:
         """
         buffer_key = f"{self._settings.CLICK_BUFFER_KEY_PREFIX}:{short_code}"
         value = await self._cache_write.get(buffer_key)
-        REDIS_OPERATIONS_TOTAL.inc()
+        # REDIS_OPERATIONS_TOTAL.inc()
         return int(value) if value else 0
     
     async def _acquire_distributed_lock(self, cache: redis.Redis, short_code: str) -> bool:
@@ -831,7 +832,7 @@ class URLShorteningService:
             short_code: Short code to unlock
         """
         await cache.delete(f"lock:url:{short_code}")
-        REDIS_OPERATIONS_TOTAL.inc()
+        # REDIS_OPERATIONS_TOTAL.inc()
     
     def _update_cache_hit_rate(self) -> None:
         """Update cache hit rate gauge based on current metrics."""
