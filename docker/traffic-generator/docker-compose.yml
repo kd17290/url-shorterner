@@ -1,0 +1,23 @@
+version: '3.8'
+
+services:
+  # Traffic Generator Service
+  traffic-generator:
+    build:
+      context: ..
+      dockerfile: docker/traffic-generator/Dockerfile
+    container_name: urlshortener-traffic-generator
+    networks:
+      - urlshortener-net
+    depends_on:
+      app:
+        condition: service_healthy
+    environment:
+      - RUST_LOG=info
+    restart: unless-stopped
+    profiles:
+      - traffic
+
+networks:
+  urlshortener-net:
+    external: true

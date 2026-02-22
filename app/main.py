@@ -92,6 +92,7 @@ from prometheus_fastapi_instrumentator import Instrumentator
 
 from app.config import get_settings
 from app.database import close_db, init_db
+from app.dependencies import _service_manager
 from app.kafka import close_kafka, init_kafka
 from app.redis import close_redis
 from app.routes import router
@@ -104,8 +105,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # Startup
     await init_db()
     await init_kafka()
+    await _service_manager.initialize()
     yield
     # Shutdown
+    await _service_manager.cleanup()
     await close_kafka()
     await close_db()
     await close_redis()

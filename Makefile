@@ -1,4 +1,4 @@
-.PHONY: up down build test orchestrator orchestrator-celebrity orchestrator-100k orchestrator-100k-dist orchestrator-100k-dist-fresh smoke load-ui boards doctor doctor-strict celebrity-assert logs clean restart status fmt lint typecheck bench standards-check python-infra-up rust-infra-up infra-down rust-build rust-bench bench-compare
+.PHONY: up down build test orchestrator orchestrator-celebrity orchestrator-100k orchestrator-100k-dist orchestrator-100k-dist-fresh smoke load-ui boards doctor doctor-strict celebrity-assert logs clean restart status fmt lint typecheck bench standards-check python-infra-up rust-infra-up infra-down rust-build rust-bench bench-compare traffic-up traffic-down
 
 # ── Stack switcher ─────────────────────────────────────────────────────────────
 # Only one stack runs at a time. Both share the same infra (postgres/redis/kafka).
@@ -77,26 +77,23 @@ test:
 
 # Run orchestrated load generator (10m, 1000 read/s + 500 write/s target)
 orchestrator:
-	docker compose up --abort-on-container-exit request-generator
+	@echo "Request generator service has been removed. Use traffic-up instead."
 
 # Run hot-key / celebrity traffic scenario
 orchestrator-celebrity:
-	docker compose up --abort-on-container-exit request-generator-celebrity
+	@echo "Request generator service has been removed. Use traffic-up instead."
 
 # Run high-throughput generator profile (targeting ~100k rps aggregate)
 orchestrator-100k:
-	docker compose up --abort-on-container-exit request-generator-100k
+	@echo "Request generator service has been removed. Use traffic-up instead."
 
 # Run distributed high-throughput profile (master + N workers)
 orchestrator-100k-dist:
-	docker compose up --no-deps --scale request-generator-dist-worker=$${REQUEST_GENERATOR_WORKERS_DIST:-24} --abort-on-container-exit request-generator-dist-master request-generator-dist-worker
+	@echo "Request generator service has been removed. Use traffic-up instead."
 
 # Full reset then run distributed high-throughput profile
 orchestrator-100k-dist-fresh:
-	docker ps -a --format '{{.Names}}' | grep '^urlshortener-' | xargs -r docker rm -f
-	docker compose down -v --remove-orphans
-	docker compose up --build -d
-	docker compose up --no-deps --scale request-generator-dist-worker=$${REQUEST_GENERATOR_WORKERS_DIST:-24} --abort-on-container-exit request-generator-dist-master request-generator-dist-worker
+	@echo "Request generator service has been removed. Use traffic-up instead."
 
 # Short smoke load + strict infra validation
 smoke:
@@ -104,11 +101,11 @@ smoke:
 	REQUEST_GENERATOR_USERS_DIST=$${REQUEST_GENERATOR_USERS_DIST:-12000} \
 	REQUEST_GENERATOR_SPAWN_RATE_DIST=$${REQUEST_GENERATOR_SPAWN_RATE_DIST:-4000} \
 	REQUEST_GENERATOR_DURATION_DIST=$${REQUEST_GENERATOR_DURATION_DIST:-90s} \
-	TARGET_READ_USERS_DIST=$${TARGET_READ_USERS_DIST:-11400} \
 	TARGET_WRITE_USERS_DIST=$${TARGET_WRITE_USERS_DIST:-600} \
+	TARGET_READ_USERS_DIST=$${TARGET_READ_USERS_DIST:-6000} \
 	TARGET_READ_RPS_PER_USER_DIST=$${TARGET_READ_RPS_PER_USER_DIST:-1} \
 	TARGET_WRITE_RPS_PER_USER_DIST=$${TARGET_WRITE_RPS_PER_USER_DIST:-1} \
-	docker compose up --no-deps --scale request-generator-dist-worker=$${REQUEST_GENERATOR_WORKERS_DIST:-6} --abort-on-container-exit request-generator-dist-master request-generator-dist-worker
+	@echo "Request generator service has been removed. Use traffic-up instead."
 	$(MAKE) doctor-strict
 
 # Launch live UIs for load and service activity
@@ -118,12 +115,12 @@ load-ui:
 # One command: start platform + all boards + traffic generators
 boards:
 	docker compose up --build -d
-	docker compose up -d load-ui request-generator dozzle grafana clickhouse-dashboard prometheus
+	docker compose up -d load-ui dozzle grafana clickhouse-dashboard prometheus
 
 # One command: health report for boards and data flow
 doctor:
 	@echo "== containers =="
-	@docker compose ps app1 app2 app3 load-balancer ingestion-1 ingestion-2 ingestion-3 prometheus grafana load-ui request-generator request-generator-100k request-generator-dist-master clickhouse clickhouse-exporter dozzle
+	@docker compose ps app1 app2 app3 load-balancer ingestion-1 ingestion-2 ingestion-3 prometheus grafana load-ui clickhouse clickhouse-exporter dozzle
 	@echo ""
 	@echo "== prometheus targets =="
 	@python3 -c "import json, urllib.request; obj=json.loads(urllib.request.urlopen('http://localhost:9090/api/v1/targets').read().decode()); [print(t['labels'].get('job'), t['labels'].get('instance'), t['health']) for t in obj['data']['activeTargets']]"
@@ -235,3 +232,14 @@ standards-check:
 		   --select=E,W,F,UP,B,C4,SIM,RUF \
 		   --ignore=B008,UP011,E501,W293 \
 		   --output-format=concise"
+
+# Traffic Generator Management
+traffic-up:
+	@echo "==> Starting Rust Traffic Generator..."
+	docker compose -f docker/traffic-generator/docker-compose.yml --profile traffic up -d
+	@echo "==> Traffic Generator running"
+
+traffic-down:
+	@echo "==> Stopping Traffic Generator..."
+	docker compose -f docker/traffic-generator/docker-compose.yml down --remove-orphans
+	@echo "==> Traffic Generator stopped"

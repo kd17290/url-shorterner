@@ -83,7 +83,8 @@ How to Use
 Key Behaviours
 ===============
 - All endpoints use async/await for non-blocking I/O.
-- Database and Redis connections are injected as dependencies.
+- Database and cache connections are injected via unified AppContext dependency.
+- Consistent naming: cache_write for primary Redis, cache_read for replica.
 - Proper HTTP status codes and error responses.
 - CORS is enabled for cross-origin requests.
 - Auto-generated OpenAPI documentation at /docs.
@@ -96,42 +97,41 @@ Endpoints:
     /:code:  Redirect to original URL.
 """
 
-import redis.asyncio as redis
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import RedirectResponse
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession
 
-from app import service
-from app.config import get_settings
-from app.database import get_db
+from app.dependencies import get_request_context, get_url_service, get_service_manager
 from app.enums import HealthStatus
-from app.redis import get_redis, get_redis_read
 from app.schemas import HealthResponse, URLCreate, URLResponse, URLStats
+from app.url_service import URLShorteningService
 
 __all__ = ["router"]
-
-settings = get_settings()
 
 router = APIRouter()
 
 
 @router.get("/health", response_model=HealthResponse, tags=["health"])
 async def health_check(
-    db: AsyncSession = Depends(get_db),
-    cache: redis.Redis = Depends(get_redis),
+    ctx = Depends(get_request_context),
+    manager = Depends(get_service_manager)
 ) -> HealthResponse:
+    ctx.logger.info("Health check requested")
     db_status = HealthStatus.HEALTHY
     cache_status = HealthStatus.HEALTHY
 
     try:
-        await db.execute(text("SELECT 1"))
-    except Exception:
+        await ctx.database.execute(text("SELECT 1"))
+        ctx.logger.debug("Database health check passed")
+    except Exception as e:
+        ctx.logger.error(f"Database health check failed: {e}")
         db_status = HealthStatus.UNHEALTHY
 
     try:
-        await cache.ping()
-    except Exception:
+        await ctx.cache_write.ping()
+        ctx.logger.debug("Cache health check passed")
+    except Exception as e:
+        ctx.logger.error(f"Cache health check failed: {e}")
         cache_status = HealthStatus.UNHEALTHY
 
     status = (
@@ -139,25 +139,30 @@ async def health_check(
         if db_status is HealthStatus.HEALTHY and cache_status is HealthStatus.HEALTHY
         else HealthStatus.UNHEALTHY
     )
+    
+    ctx.logger.info(f"Health check completed: {status.value}")
     return HealthResponse(status=status, database=db_status, cache=cache_status)
 
 
 @router.post("/api/shorten", response_model=URLResponse, status_code=201, tags=["urls"])
 async def shorten_url(
     payload: URLCreate,
-    db: AsyncSession = Depends(get_db),
-    cache: redis.Redis = Depends(get_redis),
+    ctx = Depends(get_request_context),
+    service: URLShorteningService = Depends(get_url_service),
 ) -> URLResponse:
+    ctx.logger.info(f"URL shortening requested: {payload.url}")
     try:
-        url = await service.create_short_url(payload, db, cache)
+        url = await service.create_short_url(payload)
+        ctx.logger.info(f"URL shortened successfully: {url.short_code}")
     except ValueError as exc:
+        ctx.logger.warning(f"URL shortening failed: {exc}")
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
     return URLResponse(
         id=url.id,
         short_code=url.short_code,
         original_url=url.original_url,
-        short_url=f"{settings.BASE_URL}/{url.short_code}",
+        short_url=f"{ctx.settings.BASE_URL}/{url.short_code}",
         clicks=url.clicks,
         created_at=url.created_at,
         updated_at=url.updated_at,
@@ -167,18 +172,20 @@ async def shorten_url(
 @router.get("/api/stats/{short_code}", response_model=URLStats, tags=["urls"])
 async def get_stats(
     short_code: str,
-    db: AsyncSession = Depends(get_db),
-    cache: redis.Redis = Depends(get_redis),
+    ctx = Depends(get_request_context),
+    service: URLShorteningService = Depends(get_url_service),
 ) -> URLStats:
-    url = await service.get_url_stats(short_code, db, cache)
+    ctx.logger.info(f"Stats requested for short code: {short_code}")
+    url = await service.get_url_statistics(short_code)
     if not url:
+        ctx.logger.warning(f"Stats not found for short code: {short_code}")
         raise HTTPException(status_code=404, detail="Short URL not found")
 
     return URLStats(
         id=url.id,
         short_code=url.short_code,
         original_url=url.original_url,
-        short_url=f"{settings.BASE_URL}/{url.short_code}",
+        short_url=f"{ctx.settings.BASE_URL}/{url.short_code}",
         clicks=url.clicks,
         created_at=url.created_at,
         updated_at=url.updated_at,
@@ -188,15 +195,17 @@ async def get_stats(
 @router.get("/{short_code}", tags=["redirect"])
 async def redirect_to_url(
     short_code: str,
-    db: AsyncSession = Depends(get_db),
-    cache: redis.Redis = Depends(get_redis),
-    cache_read: redis.Redis = Depends(get_redis_read),
+    ctx = Depends(get_request_context),
+    service: URLShorteningService = Depends(get_url_service),
 ) -> RedirectResponse:
+    ctx.logger.info(f"Redirect requested for short code: {short_code}")
     # cache_read → replica (read-only GET lookup, hot path)
-    # cache      → primary (INCR click buffer, XADD fallback stream)
-    url = await service.get_url_by_code(short_code, db, cache_read, cache_write=cache)
+    # cache_write → primary (INCR click buffer, XADD fallback stream)
+    url = await service.lookup_url_by_code(short_code)
     if not url:
+        ctx.logger.warning(f"Redirect failed - short code not found: {short_code}")
         raise HTTPException(status_code=404, detail="Short URL not found")
 
-    await service.increment_clicks(url, db, cache)
+    await service.track_url_click(url)
+    ctx.logger.info(f"Redirect successful: {short_code} -> {url.original_url}")
     return RedirectResponse(url=url.original_url, status_code=307)
