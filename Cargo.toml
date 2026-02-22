@@ -3,6 +3,7 @@ members = [
     "services/app-rs",
     "services/keygen-rs",
     "services/ingestion-rs",
+    "services/traffic-generator-rs",
 ]
 resolver = "2"
 
