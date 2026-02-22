@@ -9,12 +9,15 @@ import redis.asyncio as redis
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from app.config import get_settings
-from app.database import Base, get_db
-from app.main import app
-from app.redis import get_redis, get_redis_read
+from apps.url_shortener.database import Base, get_db
+from apps.url_shortener.main import app
+from apps.url_shortener.redis import get_redis, get_redis_read
+from services.config.config_service import get_config_service
 
-settings = get_settings()
+# Override Redis settings for testing
+settings = get_config_service().get_settings()
+settings.REDIS_SENTINEL_HOSTS = ""  # Disable Sentinel for tests
+settings.REDIS_URL = "redis://urlshortener-redis-test:6379/0"
 
 test_engine = create_async_engine(
     settings.DATABASE_URL,

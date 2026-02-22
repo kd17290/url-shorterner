@@ -3,12 +3,15 @@
 ## Base URL
 
 ```
-http://localhost:8000
+http://localhost:8080  # Via load balancer
+http://localhost:8000  # Direct app access
 ```
 
 FastAPI also auto-generates interactive docs at:
-- **Swagger UI**: `http://localhost:8000/docs`
-- **ReDoc**: `http://localhost:8000/redoc`
+- **Swagger UI**: `http://localhost:8080/docs` (via load balancer)
+- **Swagger UI**: `http://localhost:8000/docs` (direct app access)
+- **ReDoc**: `http://localhost:8080/redoc` (via load balancer)
+- **ReDoc**: `http://localhost:8000/redoc` (direct app access)
 
 ---
 
@@ -29,6 +32,11 @@ GET /health
 }
 ```
 
+**Health Check Details**
+- Database: Checks PostgreSQL connectivity with `SELECT 1`
+- Cache: Checks Redis connectivity with `PING`
+- Overall status: `healthy` only if both database and cache are healthy
+
 ---
 
 ### Shorten URL
@@ -44,6 +52,11 @@ POST /api/shorten
   "custom_code": "goog"          // optional, 3-20 alphanumeric chars
 }
 ```
+
+**Validation Rules**
+- URL: Must be a valid URL (RFC compliant)
+- Custom code: Optional, 3-20 characters, alphanumeric only
+- Custom codes must be unique
 
 **Response** `201 Created`
 ```json
@@ -74,7 +87,15 @@ GET /:short_code
 
 **Response** `307 Temporary Redirect`
 - `Location` header set to the original URL.
-- Click count is incremented.
+- Click count is incremented asynchronously.
+- Uses 307 to preserve HTTP method for analytics accuracy.
+
+**Request Tracking**
+- Each redirect request is logged with:
+  - Request ID and trace ID
+  - Client IP and User-Agent
+  - Timing information
+  - Short code and target URL
 
 **Errors**
 | Status | Reason |

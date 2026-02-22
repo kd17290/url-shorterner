@@ -1,6 +1,6 @@
 """Unit tests for URL shortening service utilities."""
 
-from app.url_service import BASE62_ALPHABET
+from services.url_shortening.url_shortening_service import BASE62_ALPHABET
 
 
 def test_base62_alphabet() -> None:

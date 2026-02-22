@@ -15,22 +15,22 @@ WORKDIR /build
 
 # Copy workspace manifests first for layer caching.
 COPY Cargo.toml Cargo.lock* ./
-COPY services/app-rs/Cargo.toml services/app-rs/
-COPY services/keygen-rs/Cargo.toml services/keygen-rs/
-COPY services/ingestion-rs/Cargo.toml services/ingestion-rs/
+COPY services/rust/app-rs/Cargo.toml services/rust/app-rs/
+COPY services/rust/keygen-rs/Cargo.toml services/rust/keygen-rs/
+COPY services/rust/ingestion-rs/Cargo.toml services/rust/ingestion-rs/
 
 # Stub src files so cargo can resolve the workspace without full source.
-RUN mkdir -p services/app-rs/src services/keygen-rs/src services/ingestion-rs/src \
-    && echo 'fn main(){}' > services/app-rs/src/main.rs \
-    && echo 'fn main(){}' > services/keygen-rs/src/main.rs \
-    && echo 'fn main(){}' > services/ingestion-rs/src/main.rs
+RUN mkdir -p services/rust/app-rs/src services/rust/keygen-rs/src services/rust/ingestion-rs/src \
+    && echo 'fn main(){}' > services/rust/app-rs/src/main.rs \
+    && echo 'fn main(){}' > services/rust/keygen-rs/src/main.rs \
+    && echo 'fn main(){}' > services/rust/ingestion-rs/src/main.rs
 
 # Pre-build dependencies (cached layer).
 RUN cargo build --release -p app-rs 2>&1 | tail -5 || true
 
 # Copy real source and rebuild only app-rs.
-COPY services/app-rs/src/ services/app-rs/src/
-RUN touch services/app-rs/src/main.rs \
+COPY services/rust/app-rs/src/ services/rust/app-rs/src/
+RUN touch services/rust/app-rs/src/main.rs \
     && cargo build --release -p app-rs
 
 # ── Stage 2: runtime ──────────────────────────────────────────────────────────

@@ -1,8 +1,8 @@
 [workspace]
 members = [
-    "services/app-rs",
-    "services/keygen-rs",
-    "services/ingestion-rs",
+    "services/rust/app-rs",
+    "services/rust/keygen-rs",
+    "services/rust/ingestion-rs",
 ]
 resolver = "2"
 

@@ -13,10 +13,15 @@ import pytest
 import redis.asyncio as redis
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.config import Settings, get_settings
-from app.models import URL
-from app.schemas import URLCreate
-from app.url_service import BASE62_ALPHABET, PerformanceMetrics, URLShorteningService, _base62_encode
+from common.models import URL
+from common.schemas import URLCreate
+from services.config.config_service import Settings, get_config_service
+from services.url_shortening.url_shortening_service import (
+    BASE62_ALPHABET,
+    PerformanceMetrics,
+    URLShorteningService,
+    _base62_encode,
+)
 
 # ============================================================================
 # TEST FIXTURES AND UTILITIES
@@ -26,7 +31,7 @@ from app.url_service import BASE62_ALPHABET, PerformanceMetrics, URLShorteningSe
 @pytest.fixture
 def settings() -> Settings:
     """Get test settings."""
-    return get_settings()
+    return get_config_service().get_settings()
 
 
 @pytest.fixture
@@ -74,8 +79,8 @@ def url_service(mock_database, mock_redis, mock_logger, settings) -> URLShorteni
 
     ctx = Mock()
     ctx.database = mock_database
-    ctx.cache_writer = mock_redis
-    ctx.cache_reader = mock_redis
+    ctx.get_cache_writer = AsyncMock(return_value=mock_redis)
+    ctx.get_cache_reader = AsyncMock(return_value=mock_redis)
     ctx.logger = mock_logger
     ctx.settings = settings
 
@@ -139,8 +144,7 @@ class TestURLShorteningService:
     def test_service_initialization(self, url_service):
         """Test service initialization."""
         assert url_service._db is not None
-        assert url_service._cache_write is not None
-        assert url_service._cache_read is not None
+        assert url_service._ctx is not None
         assert url_service._logger is not None
         assert url_service._settings is not None
         assert url_service._metrics is not None
@@ -162,7 +166,9 @@ class TestURLShorteningService:
         url_service._db.refresh.side_effect = mock_refresh
 
         # Mock ID allocation
-        with patch("app.url_service._allocate_short_code_with_cache", return_value="abc123"):
+        with patch(
+            "services.url_shortening.url_shortening_service._allocate_short_code_with_cache", return_value="abc123"
+        ):
             url = await url_service.create_short_url(sample_url_request)
 
         assert url.short_code == "abc123"
@@ -245,31 +251,30 @@ class TestURLShorteningService:
 
     @pytest.mark.asyncio
     async def test_track_url_click(self, url_service, sample_url):
-        """Test click tracking."""
+        """Test basic click tracking."""
         # Mock Redis operations
         url_service._cache_write.incr.return_value = 1
         url_service._cache_write.expire.return_value = True
 
-        # Mock Kafka success
-        with patch("app.url_service.publish_click_event", return_value=True):
-            await url_service.track_url_click(sample_url)
+        # Track click (no longer publishes to Kafka)
+        await url_service.track_url_click(sample_url)
 
         url_service._cache_write.incr.assert_called_once()
         url_service._cache_write.expire.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_track_url_click_kafka_failure(self, url_service, sample_url):
-        """Test click tracking with Kafka failure."""
+    async def test_track_url_click_performance(self, url_service, sample_url):
+        """Test click tracking performance."""
         # Mock Redis operations
         url_service._cache_write.incr.return_value = 1
         url_service._cache_write.expire.return_value = True
-        url_service._cache_write.xadd.return_value = "123456789"
 
-        # Mock Kafka failure
-        with patch("app.url_service.publish_click_event", return_value=False):
+        # Track click and measure performance
+        with patch("time.perf_counter") as mock_time:
+            mock_time.side_effect = [0.0, 0.001]  # 1ms duration
             await url_service.track_url_click(sample_url)
 
-        url_service._cache_write.xadd.assert_called_once()
+        url_service._cache_write.incr.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_get_url_statistics_with_buffered_clicks(self, url_service, sample_url):
@@ -310,7 +315,9 @@ class TestServicePerformance:
         url_service._db.refresh.side_effect = mock_refresh
 
         # Mock ID allocation
-        with patch("app.url_service._allocate_short_code_with_cache", return_value="perf123"):
+        with patch(
+            "services.url_shortening.url_shortening_service._allocate_short_code_with_cache", return_value="perf123"
+        ):
             start_time = time.perf_counter()
             url = await url_service.create_short_url(sample_url_request)
             duration = time.perf_counter() - start_time
@@ -364,11 +371,10 @@ class TestServicePerformance:
         url_service._cache_write.incr.return_value = 1
         url_service._cache_write.expire.return_value = True
 
-        # Mock Kafka success
-        with patch("app.url_service.publish_click_event", return_value=True):
-            start_time = time.perf_counter()
-            await url_service.track_url_click(sample_url)
-            duration = time.perf_counter() - start_time
+        # Measure click tracking performance
+        start_time = time.perf_counter()
+        await url_service.track_url_click(sample_url)
+        duration = time.perf_counter() - start_time
 
         assert duration < 0.01  # Click tracking should be very fast (<10ms)
 
@@ -392,7 +398,9 @@ class TestServicePerformance:
         codes = [f"conc{i}" for i in range(5)]
 
         async def create_url(code):
-            with patch("app.url_service._allocate_short_code_with_cache", return_value=code):
+            with patch(
+                "services.url_shortening.url_shortening_service._allocate_short_code_with_cache", return_value=code
+            ):
                 return await url_service.create_short_url(sample_url_request)
 
         # Create multiple URLs concurrently
@@ -470,7 +478,9 @@ class TestServiceIntegration:
         url_service._cache_url_object = mock_cache_url_object
 
         # Step 1: Create URL
-        with patch("app.url_service._allocate_short_code_with_cache", return_value="abc123"):
+        with patch(
+            "services.url_shortening.url_shortening_service._allocate_short_code_with_cache", return_value="abc123"
+        ):
             created_url = await url_service.create_short_url(sample_url_request)
 
         # Verify refresh was called
@@ -494,11 +504,11 @@ class TestServiceIntegration:
         assert looked_up_url.original_url == str(sample_url_request.url)
 
         # Step 3: Track click
+        # Mock Redis operations
         url_service._cache_write.incr.return_value = 1
         url_service._cache_write.expire.return_value = True
 
-        with patch("app.url_service.publish_click_event", return_value=True):
-            await url_service.track_url_click(looked_up_url)
+        await url_service.track_url_click(looked_up_url)
 
         # Verify all operations were called
         url_service._db.add.assert_called_once()

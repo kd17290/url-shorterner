@@ -1,0 +1,36 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  # - "first_rules.yml"
+  # - "second_rules.yml"
+
+scrape_configs:
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  - job_name: 'url-shortener'
+    static_configs:
+      - targets: ['app1:8000', 'app2:8000', 'app3:8000']
+    metrics_path: '/metrics'
+    scrape_interval: 5s
+
+  - job_name: 'keygen-service'
+    static_configs:
+      - targets: ['keygen:8010']
+    metrics_path: '/metrics'
+    scrape_interval: 5s
+
+  - job_name: 'ingestion-services'
+    static_configs:
+      - targets: ['ingestion-1:9200', 'ingestion-2:9200', 'ingestion-3:9200']
+    metrics_path: '/metrics'
+    scrape_interval: 5s
+
+alerting:
+  alertmanagers:
+    - static_configs:
+      - targets:
+        # - alertmanager:9093

@@ -42,19 +42,18 @@ PostgreSQL · Redis primary + replica · Kafka · ClickHouse · Prometheus · Gr
 
 Handles `POST /api/shorten`, `GET /<code>` (redirect), `GET /api/stats/<code>`, `GET /health`.
 
-### Python — `app/`
+### Python — `apps/`
 
 | File | Purpose |
 |---|---|
-| [`app/main.py`](../app/main.py) | FastAPI app factory, lifespan (startup/shutdown), CORS, Prometheus instrumentation |
-| [`app/config.py`](../app/config.py) | All env vars as a Pydantic `Settings` class, cached with `@lru_cache` |
-| [`app/routes.py`](../app/routes.py) | HTTP route definitions — thin layer, delegates to `service.py` |
-| [`app/service.py`](../app/service.py) | **All business logic** — short code generation, cache-first lookup, click buffering, stampede protection |
-| [`app/models.py`](../app/models.py) | SQLAlchemy ORM model for the `urls` table |
-| [`app/schemas.py`](../app/schemas.py) | Pydantic schemas: `URLCreate` (input), `URLResponse` (output), `ClickEvent`, `CachedURLPayload` |
-| [`app/database.py`](../app/database.py) | Async SQLAlchemy engine + session factory, `init_db()` with advisory lock |
-| [`app/redis.py`](../app/redis.py) | Two singleton Redis clients — write (primary) and read (replica) |
-| [`app/kafka.py`](../app/kafka.py) | `AIOKafkaProducer` singleton, `publish_click_event()` with Redis stream fallback |
+| [`apps/url_shortener/main.py`](../apps/url_shortener/main.py) | FastAPI app factory, lifespan (startup/shutdown), CORS, Prometheus instrumentation |
+| [`apps/url_shortener/config.py`](../apps/url_shortener/config.py) | All env vars as a Pydantic `Settings` class, cached with `@lru_cache` |
+| [`apps/url_shortener/routes.py`](../apps/url_shortener/routes.py) | HTTP route definitions — thin layer, delegates to service layer |
+| [`services/url_shortening/url_shortening_service.py`](../services/url_shortening/url_shortening_service.py) | **All business logic** — short code generation, cache-first lookup, click buffering, stampede protection |
+| [`common/models.py`](../common/models.py) | SQLAlchemy ORM model for the `urls` table |
+| [`common/schemas.py`](../common/schemas.py) | Pydantic schemas: `URLCreate` (input), `URLResponse` (output), `ClickEvent`, `CachedURLPayload` |
+| [`apps/url_shortener/database.py`](../apps/url_shortener/database.py) | Async SQLAlchemy engine + session factory, `init_db()` with advisory lock |
+| [`apps/url_shortener/dependencies.py`](../apps/url_shortener/dependencies.py) | Dependency injection with singleton service manager and request context |
 
 **Key flow — redirect hot path:**
 ```
@@ -264,7 +263,8 @@ Both stacks read from the same environment variables. The Python side uses Pydan
 | `CLICKHOUSE_URL` | `Settings.CLICKHOUSE_URL` | `Config.clickhouse_url` | ingestion |
 
 **Config source files:**
-- Python: [`app/config.py`](../app/config.py)
+- Python: [`services/config/config_service.py`](../services/config/config_service.py)
+- Python app settings: [`apps/url_shortener/config.py`](../apps/url_shortener/config.py)
 - Rust app-rs: [`services/app-rs/src/config.rs`](../services/app-rs/src/config.rs)
 - Rust keygen-rs: [`services/keygen-rs/src/main.rs`](../services/keygen-rs/src/main.rs) (inline `Config` struct)
 - Rust ingestion-rs: [`services/ingestion-rs/src/main.rs`](../services/ingestion-rs/src/main.rs) (inline `Config` struct)
@@ -278,8 +278,8 @@ These structures are defined in Python schemas and mirrored exactly in Rust mode
 
 | Contract | Python | Rust | Used for |
 |---|---|---|---|
-| Redis URL cache | `CachedURLPayload` in [`app/schemas.py`](../app/schemas.py) | `Url` struct in [`services/app-rs/src/models.rs`](../services/app-rs/src/models.rs) | `url:<short_code>` Redis key |
-| Kafka click event | `ClickEvent` in [`app/schemas.py`](../app/schemas.py) | `ClickEvent` in [`services/app-rs/src/models.rs`](../services/app-rs/src/models.rs) and [`services/ingestion-rs/src/main.rs`](../services/ingestion-rs/src/main.rs) | `click_events` Kafka topic |
+| Redis URL cache | `CachedURLPayload` in [`common/schemas.py`](../common/schemas.py) | `Url` struct in [`services/app-rs/src/models.rs`](../services/app-rs/src/models.rs) | `url:<short_code>` Redis key |
+| Kafka click event | `ClickEvent` in [`common/schemas.py`](../common/schemas.py) | `ClickEvent` in [`services/app-rs/src/models.rs`](../services/app-rs/src/models.rs) and [`services/ingestion-rs/src/main.rs`](../services/ingestion-rs/src/main.rs) | `click_events` Kafka topic |
 | Redis click buffer | key `click_buffer:<code>` (plain integer string) | same key pattern in `cache.rs` and `ingestion-rs` | buffered click counter |
 | Redis agg hash | `ingestion_agg:<consumer_name>` (Redis hash) | same key in `ingestion-rs` | aggregation before DB flush |
 | ClickHouse table | DDL in [`services/ingestion_py/worker.py`](../services/ingestion_py/worker.py) | DDL in [`services/ingestion-rs/src/main.rs`](../services/ingestion-rs/src/main.rs) | `click_events` analytics table |
@@ -858,13 +858,13 @@ async def safe_url_creation():
 
 | I want to… | Go to |
 |---|---|
-| Change how short codes are generated | [`app/service.py`](../app/service.py) `_base62_encode`, `_generate_short_code_from_allocator` · [`services/app-rs/src/keygen.rs`](../services/app-rs/src/keygen.rs) |
-| Change the redirect / cache lookup logic | [`app/service.py`](../app/service.py) `get_url_by_code` · [`services/app-rs/src/handlers.rs`](../services/app-rs/src/handlers.rs) `redirect` |
-| Change click tracking / buffering | [`app/service.py`](../app/service.py) `increment_clicks` · [`services/app-rs/src/handlers.rs`](../services/app-rs/src/handlers.rs) `track_click` |
-| Change how clicks are flushed to Postgres | [`services/ingestion_py/worker.py`](../services/ingestion_py/worker.py) `_process_batch` · [`services/ingestion-rs/src/main.rs`](../services/ingestion-rs/src/main.rs) `flush_redis_to_db` |
-| Add a new API endpoint | [`app/routes.py`](../app/routes.py) + [`app/service.py`](../app/service.py) · [`services/app-rs/src/handlers.rs`](../services/app-rs/src/handlers.rs) + [`services/app-rs/src/main.rs`](../services/app-rs/src/main.rs) |
-| Add a new config variable | [`app/config.py`](../app/config.py) · relevant `Config::from_env()` in the Rust service |
-| Add a new Prometheus metric | [`app/service.py`](../app/service.py) top-level `Counter(...)` · [`services/app-rs/src/metrics.rs`](../services/app-rs/src/metrics.rs) |
-| Change the database schema | [`app/models.py`](../app/models.py) · [`services/app-rs/src/models.rs`](../services/app-rs/src/models.rs) |
-| Change Redis cache format | [`app/schemas.py`](../app/schemas.py) `CachedURLPayload` · [`services/app-rs/src/cache.rs`](../services/app-rs/src/cache.rs) |
-| Change Kafka message format | [`app/schemas.py`](../app/schemas.py) `ClickEvent` · [`services/app-rs/src/models.rs`](../services/app-rs/src/models.rs) `ClickEvent` |
+| Change how short codes are generated | [`services/url_shortening/url_shortening_service.py`](../services/url_shortening/url_shortening_service.py) `_base62_encode`, `_generate_short_code_from_allocator` · [`services/app-rs/src/keygen.rs`](../services/app-rs/src/keygen.rs) |
+| Change the redirect / cache lookup logic | [`services/url_shortening/url_shortening_service.py`](../services/url_shortening/url_shortening_service.py) `get_url_by_code` · [`services/app-rs/src/handlers.rs`](../services/app-rs/src/handlers.rs) `redirect` |
+| Change click tracking / buffering | [`services/url_shortening/url_shortening_service.py`](../services/url_shortening/url_shortening_service.py) `increment_clicks` · [`services/app-rs/src/handlers.rs`](../services/app-rs/src/handlers.rs) `track_click` |
+| Change how clicks are flushed to Postgres | [`services/ingestion/worker.py`](../services/ingestion/worker.py) `_process_batch` · [`services/ingestion-rs/src/main.rs`](../services/ingestion-rs/src/main.rs) `flush_redis_to_db` |
+| Add a new API endpoint | [`apps/url_shortener/routes.py`](../apps/url_shortener/routes.py) + [`services/url_shortening/url_shortening_service.py`](../services/url_shortening/url_shortening_service.py) · [`services/app-rs/src/handlers.rs`](../services/app-rs/src/handlers.rs) + [`services/app-rs/src/main.rs`](../services/app-rs/src/main.rs) |
+| Add a new config variable | [`services/config/config_service.py`](../services/config/config_service.py) · relevant `Config::from_env()` in the Rust service |
+| Add a new Prometheus metric | [`services/url_shortening/url_shortening_service.py`](../services/url_shortening/url_shortening_service.py) top-level `Counter(...)` · [`services/app-rs/src/metrics.rs`](../services/app-rs/src/metrics.rs) |
+| Change the database schema | [`common/models.py`](../common/models.py) · [`services/app-rs/src/models.rs`](../services/app-rs/src/models.rs) |
+| Change Redis cache format | [`common/schemas.py`](../common/schemas.py) `CachedURLPayload` · [`services/app-rs/src/cache.rs`](../services/app-rs/src/cache.rs) |
+| Change Kafka message format | [`common/schemas.py`](../common/schemas.py) `ClickEvent` · [`services/app-rs/src/models.rs`](../services/app-rs/src/models.rs) `ClickEvent` |

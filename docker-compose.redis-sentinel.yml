@@ -1,0 +1,146 @@
+# Redis Sentinel Configuration for High Availability
+version: '3.8'
+
+services:
+  # Redis Master with AOF persistence
+  redis-master:
+    image: redis:7-alpine
+    container_name: urlshortener-redis-master
+    command: |
+      redis-server 
+      --port 6379
+      --appendonly yes
+      --appendfsync everysec
+      --save 900 1
+      --save 300 10
+      --save 60 10000
+      --maxmemory 512mb
+      --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_master_data:/data
+      - ./docker/redis/redis-master.conf:/usr/local/etc/redis/redis.conf
+    networks:
+      - urlshortener-net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # Redis Replica 1
+  redis-replica-1:
+    image: redis:7-alpine
+    container_name: urlshortener-redis-replica-1
+    command: |
+      redis-server 
+      --port 6379
+      --replicaof redis-master 6379
+      --appendonly yes
+      --appendfsync everysec
+      --maxmemory 512mb
+      --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_replica1_data:/data
+      - ./docker/redis/redis-replica.conf:/usr/local/etc/redis/redis.conf
+    depends_on:
+      redis-master:
+        condition: service_healthy
+    networks:
+      - urlshortener-net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # Redis Replica 2
+  redis-replica-2:
+    image: redis:7-alpine
+    container_name: urlshortener-redis-replica-2
+    command: |
+      redis-server 
+      --port 6379
+      --replicaof redis-master 6379
+      --appendonly yes
+      --appendfsync everysec
+      --maxmemory 512mb
+      --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_replica2_data:/data
+      - ./docker/redis/redis-replica.conf:/usr/local/etc/redis/redis.conf
+    depends_on:
+      redis-master:
+        condition: service_healthy
+    networks:
+      - urlshortener-net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # Redis Sentinel 1
+  redis-sentinel-1:
+    image: redis:7-alpine
+    container_name: urlshortener-redis-sentinel-1
+    command: redis-sentinel /etc/redis/sentinel.conf
+    volumes:
+      - ./docker/redis/sentinel.conf:/etc/redis/sentinel.conf
+      - redis_sentinel1_data:/data
+    depends_on:
+      redis-master:
+        condition: service_healthy
+    networks:
+      - urlshortener-net
+    restart: unless-stopped
+    ports:
+      - "26379:26379"
+
+  # Redis Sentinel 2
+  redis-sentinel-2:
+    image: redis:7-alpine
+    container_name: urlshortener-redis-sentinel-2
+    command: redis-sentinel /etc/redis/sentinel.conf
+    volumes:
+      - ./docker/redis/sentinel.conf:/etc/redis/sentinel.conf
+      - redis_sentinel2_data:/data
+    depends_on:
+      redis-master:
+        condition: service_healthy
+    networks:
+      - urlshortener-net
+    restart: unless-stopped
+    ports:
+      - "26380:26379"
+
+  # Redis Sentinel 3
+  redis-sentinel-3:
+    image: redis:7-alpine
+    container_name: urlshortener-redis-sentinel-3
+    command: redis-sentinel /etc/redis/sentinel.conf
+    volumes:
+      - ./docker/redis/sentinel.conf:/etc/redis/sentinel.conf
+      - redis_sentinel3_data:/data
+    depends_on:
+      redis-master:
+        condition: service_healthy
+    networks:
+      - urlshortener-net
+    restart: unless-stopped
+    ports:
+      - "26381:26379"
+
+volumes:
+  redis_master_data:
+  redis_replica1_data:
+  redis_replica2_data:
+  redis_sentinel1_data:
+  redis_sentinel2_data:
+  redis_sentinel3_data:
+
+networks:
+  urlshortener-net:
+    external: true

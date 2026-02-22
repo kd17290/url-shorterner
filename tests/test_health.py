@@ -3,7 +3,7 @@
 import pytest
 from httpx import AsyncClient
 
-from app.enums import HealthStatus
+from common.enums import HealthStatus
 
 
 @pytest.mark.asyncio

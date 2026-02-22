@@ -1,4 +1,8 @@
+# Updated Docker Compose with Redis Sentinel
+version: '3.8'
+
 services:
+  # Load Balancer
   load-balancer:
     image: nginx:1.27-alpine
     container_name: urlshortener-lb
@@ -17,6 +21,7 @@ services:
       - urlshortener-net
     restart: unless-stopped
 
+  # Kafka Init
   kafka-init:
     image: redpandadata/redpanda:v24.1.14
     container_name: urlshortener-kafka-init
@@ -45,6 +50,7 @@ services:
       - urlshortener-net
     restart: "no"
 
+  # ClickHouse Exporter
   clickhouse-exporter:
     image: f1yegor/clickhouse-exporter:latest
     container_name: urlshortener-clickhouse-exporter
@@ -52,11 +58,12 @@ services:
       CLICKHOUSE_URL: http://default:clickhouse@clickhouse:8123/
     depends_on:
       clickhouse:
-        condition: service_started
+        condition: service_healthy
     networks:
       - urlshortener-net
     restart: unless-stopped
 
+  # URL Shortener Apps
   app1:
     build:
       context: .
@@ -76,7 +83,7 @@ services:
     depends_on:
       db:
         condition: service_healthy
-      redis:
+      redis-master:
         condition: service_healthy
       kafka:
         condition: service_started
@@ -97,12 +104,17 @@ services:
     env_file:
       - .env
     environment:
-      KEYGEN_PRIMARY_REDIS_URL: redis://keygen-redis-primary:6379/0
-      KEYGEN_SECONDARY_REDIS_URL: redis://keygen-redis-secondary:6379/0
+      # Redis Sentinel Configuration
+      REDIS_SENTINEL_HOSTS: redis-sentinel-1:26379,redis-sentinel-2:26379,redis-sentinel-3:26379
+      REDIS_SENTINEL_MASTER_NAME: mymaster
+      REDIS_SENTINEL_QUORUM: 2
+      # Legacy compatibility
+      KEYGEN_PRIMARY_REDIS_URL: redis://redis-master:6379/0
+      KEYGEN_SECONDARY_REDIS_URL: redis://redis-replica-1:6379/0
     depends_on:
       db:
         condition: service_healthy
-      redis:
+      redis-master:
         condition: service_healthy
       kafka:
         condition: service_started
@@ -123,12 +135,17 @@ services:
     env_file:
       - .env
     environment:
-      KEYGEN_PRIMARY_REDIS_URL: redis://keygen-redis-primary:6379/0
-      KEYGEN_SECONDARY_REDIS_URL: redis://keygen-redis-secondary:6379/0
+      # Redis Sentinel Configuration
+      REDIS_SENTINEL_HOSTS: redis-sentinel-1:26379,redis-sentinel-2:26379,redis-sentinel-3:26379
+      REDIS_SENTINEL_MASTER_NAME: mymaster
+      REDIS_SENTINEL_QUORUM: 2
+      # Legacy compatibility
+      KEYGEN_PRIMARY_REDIS_URL: redis://redis-master:6379/0
+      KEYGEN_SECONDARY_REDIS_URL: redis://redis-replica-1:6379/0
     depends_on:
       db:
         condition: service_healthy
-      redis:
+      redis-master:
         condition: service_healthy
       kafka:
         condition: service_started
@@ -140,6 +157,7 @@ services:
       - urlshortener-net
     restart: unless-stopped
 
+  # Database
   db:
     image: postgres:16-alpine
     container_name: urlshortener-db
@@ -152,72 +170,140 @@ services:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-urlshortener}"]
-      interval: 5s
+      interval: 10s
       timeout: 5s
       retries: 5
     networks:
       - urlshortener-net
     restart: unless-stopped
 
-  redis:
+  # Redis Sentinel Cluster
+  redis-master:
     image: redis:7-alpine
-    container_name: urlshortener-redis
-    command: redis-server --port 6379 --appendonly yes --appendfsync everysec
+    container_name: urlshortener-redis-master
+    command: |
+      redis-server 
+      --port 6379
+      --appendonly yes
+      --appendfsync everysec
+      --save 900 1
+      --save 300 10
+      --save 60 10000
+      --maxmemory 512mb
+      --maxmemory-policy allkeys-lru
     volumes:
-      - redis_data:/data
+      - redis_master_data:/data
+      - ./docker/redis/redis-master.conf:/usr/local/etc/redis/redis.conf
+    networks:
+      - urlshortener-net
+    restart: unless-stopped
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
+      interval: 10s
       timeout: 5s
-      retries: 5
-    networks:
-      - urlshortener-net
-    restart: unless-stopped
+      retries: 3
 
-  redis-replica:
+  redis-replica-1:
     image: redis:7-alpine
-    container_name: urlshortener-redis-replica
-    command: redis-server --replicaof redis 6379
+    container_name: urlshortener-redis-replica-1
+    command: |
+      redis-server 
+      --port 6379
+      --replicaof redis-master 6379
+      --appendonly yes
+      --appendfsync everysec
+      --maxmemory 512mb
+      --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_replica1_data:/data
+      - ./docker/redis/redis-replica.conf:/usr/local/etc/redis/redis.conf
     depends_on:
-      redis:
+      redis-master:
         condition: service_healthy
     networks:
       - urlshortener-net
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
 
-  keygen-redis-primary:
+  redis-replica-2:
     image: redis:7-alpine
-    container_name: urlshortener-keygen-redis-primary
-    networks:
-      - urlshortener-net
-    restart: unless-stopped
-
-  keygen-redis-secondary:
-    image: redis:7-alpine
-    container_name: urlshortener-keygen-redis-secondary
-    networks:
-      - urlshortener-net
-    restart: unless-stopped
-
-  keygen:
-    build:
-      context: .
-      dockerfile: docker/api/Dockerfile
-    container_name: urlshortener-keygen
-    command: uvicorn apps.keygen_app.main:app --host 0.0.0.0 --port 8010
-    ports:
-      - "8010:8010"
-    env_file:
-      - .env
+    container_name: urlshortener-redis-replica-2
+    command: |
+      redis-server 
+      --port 6379
+      --replicaof redis-master 6379
+      --appendonly yes
+      --appendfsync everysec
+      --maxmemory 512mb
+      --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_replica2_data:/data
+      - ./docker/redis/redis-replica.conf:/usr/local/etc/redis/redis.conf
     depends_on:
-      keygen-redis-primary:
-        condition: service_started
-      keygen-redis-secondary:
-        condition: service_started
+      redis-master:
+        condition: service_healthy
     networks:
       - urlshortener-net
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
 
+  redis-sentinel-1:
+    image: redis:7-alpine
+    container_name: urlshortener-redis-sentinel-1
+    command: redis-sentinel /etc/redis/sentinel.conf
+    volumes:
+      - ./docker/redis/sentinel.conf:/etc/redis/sentinel.conf
+      - redis_sentinel1_data:/data
+    depends_on:
+      redis-master:
+        condition: service_healthy
+    networks:
+      - urlshortener-net
+    restart: unless-stopped
+    ports:
+      - "26379:26379"
+
+  redis-sentinel-2:
+    image: redis:7-alpine
+    container_name: urlshortener-redis-sentinel-2
+    command: redis-sentinel /etc/redis/sentinel.conf
+    volumes:
+      - ./docker/redis/sentinel.conf:/etc/redis/sentinel.conf
+      - redis_sentinel2_data:/data
+    depends_on:
+      redis-master:
+        condition: service_healthy
+    networks:
+      - urlshortener-net
+    restart: unless-stopped
+    ports:
+      - "26380:26379"
+
+  redis-sentinel-3:
+    image: redis:7-alpine
+    container_name: urlshortener-redis-sentinel-3
+    command: redis-sentinel /etc/redis/sentinel.conf
+    volumes:
+      - ./docker/redis/sentinel.conf:/etc/redis/sentinel.conf
+      - redis_sentinel3_data:/data
+    depends_on:
+      redis-master:
+        condition: service_healthy
+    networks:
+      - urlshortener-net
+    restart: unless-stopped
+    ports:
+      - "26381:26379"
+
+  # Kafka
   kafka:
     image: redpandadata/redpanda:v24.1.14
     container_name: urlshortener-kafka
@@ -242,6 +328,7 @@ services:
       - urlshortener-net
     restart: unless-stopped
 
+  # ClickHouse
   clickhouse:
     image: clickhouse/clickhouse-server:24.8
     container_name: urlshortener-clickhouse
@@ -257,27 +344,54 @@ services:
       - urlshortener-net
     restart: unless-stopped
 
+  # Keygen Service
+  keygen:
+    build:
+      context: .
+      dockerfile: docker/api/Dockerfile
+    container_name: urlshortener-keygen
+    command: uvicorn apps.keygen_app.main:app --host 0.0.0.0 --port 8010
+    ports:
+      - "8010:8010"
+    env_file:
+      - .env
+    environment:
+      # Redis Sentinel Configuration
+      REDIS_SENTINEL_HOSTS: redis-sentinel-1:26379,redis-sentinel-2:26379,redis-sentinel-3:26379
+      REDIS_SENTINEL_MASTER_NAME: mymaster
+      REDIS_SENTINEL_QUORUM: 2
+      # Legacy compatibility
+      KEYGEN_PRIMARY_REDIS_URL: redis://redis-master:6379/0
+      KEYGEN_SECONDARY_REDIS_URL: redis://redis-replica-1:6379/0
+    depends_on:
+      redis-master:
+        condition: service_healthy
+    networks:
+      - urlshortener-net
+    restart: unless-stopped
+
+  # Ingestion Services
   ingestion-1:
     build:
       context: .
       dockerfile: docker/api/Dockerfile
     container_name: urlshortener-ingestion-1
     command: python -m services.ingestion.worker
+    env_file:
+      - .env
     environment:
       INGESTION_CONSUMER_NAME: ingestion-consumer-1
       INGESTION_METRICS_PORT: 9200
-    env_file:
-      - .env
+      # Redis Sentinel Configuration
+      REDIS_SENTINEL_HOSTS: redis-sentinel-1:26379,redis-sentinel-2:26379,redis-sentinel-3:26379
+      REDIS_SENTINEL_MASTER_NAME: mymaster
+      REDIS_SENTINEL_QUORUM: 2
     depends_on:
       db:
         condition: service_healthy
-      redis:
+      redis-master:
         condition: service_healthy
       kafka:
-        condition: service_started
-      kafka-init:
-        condition: service_completed_successfully
-      clickhouse:
         condition: service_started
     networks:
       - urlshortener-net
@@ -289,21 +403,21 @@ services:
       dockerfile: docker/api/Dockerfile
     container_name: urlshortener-ingestion-2
     command: python -m services.ingestion.worker
+    env_file:
+      - .env
     environment:
       INGESTION_CONSUMER_NAME: ingestion-consumer-2
       INGESTION_METRICS_PORT: 9200
-    env_file:
-      - .env
+      # Redis Sentinel Configuration
+      REDIS_SENTINEL_HOSTS: redis-sentinel-1:26379,redis-sentinel-2:26379,redis-sentinel-3:26379
+      REDIS_SENTINEL_MASTER_NAME: mymaster
+      REDIS_SENTINEL_QUORUM: 2
     depends_on:
       db:
         condition: service_healthy
-      redis:
+      redis-master:
         condition: service_healthy
       kafka:
-        condition: service_started
-      kafka-init:
-        condition: service_completed_successfully
-      clickhouse:
         condition: service_started
     networks:
       - urlshortener-net
@@ -315,26 +429,27 @@ services:
       dockerfile: docker/api/Dockerfile
     container_name: urlshortener-ingestion-3
     command: python -m services.ingestion.worker
+    env_file:
+      - .env
     environment:
       INGESTION_CONSUMER_NAME: ingestion-consumer-3
       INGESTION_METRICS_PORT: 9200
-    env_file:
-      - .env
+      # Redis Sentinel Configuration
+      REDIS_SENTINEL_HOSTS: redis-sentinel-1:26379,redis-sentinel-2:26379,redis-sentinel-3:26379
+      REDIS_SENTINEL_MASTER_NAME: mymaster
+      REDIS_SENTINEL_QUORUM: 2
     depends_on:
       db:
         condition: service_healthy
-      redis:
+      redis-master:
         condition: service_healthy
       kafka:
-        condition: service_started
-      kafka-init:
-        condition: service_completed_successfully
-      clickhouse:
         condition: service_started
     networks:
       - urlshortener-net
     restart: unless-stopped
 
+  # Cache Warmer
   cache-warmer:
     build:
       context: .
@@ -343,141 +458,84 @@ services:
     command: python -m services.cache_warming.worker
     env_file:
       - .env
+    environment:
+      # Redis Sentinel Configuration
+      REDIS_SENTINEL_HOSTS: redis-sentinel-1:26379,redis-sentinel-2:26379,redis-sentinel-3:26379
+      REDIS_SENTINEL_MASTER_NAME: mymaster
+      REDIS_SENTINEL_QUORUM: 2
     depends_on:
       db:
         condition: service_healthy
-      redis:
+      redis-master:
         condition: service_healthy
-    networks:
-      - urlshortener-net
-    restart: unless-stopped
-
-  load-ui:
-    image: locustio/locust:2.31.6
-    container_name: urlshortener-load-ui
-    command: >
-      -f /mnt/locust/locustfile_orchestrator.py
-      --host http://load-balancer:8080
-      --web-port 8089
-      --autostart
-      -u 1500
-      -r 300
-      --print-stats
-    ports:
-      - "8089:8089"
-    volumes:
-      - ./stress:/mnt/locust
-    depends_on:
-      load-balancer:
+      keygen:
         condition: service_started
     networks:
       - urlshortener-net
     restart: unless-stopped
 
+  # Monitoring
   prometheus:
-    image: prom/prometheus:v2.54.1
+    image: prom/prometheus:v2.40.0
     container_name: urlshortener-prometheus
-    volumes:
-      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --web.console.libraries=/etc/prometheus/console_libraries
+      - --web.console.templates=/etc/prometheus/consoles
+      - --storage.tsdb.retention.time=200h
+      - --web.enable-lifecycle
     ports:
       - "9090:9090"
+    volumes:
+      - ./docker/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
     networks:
       - urlshortener-net
     restart: unless-stopped
 
   grafana:
-    image: grafana/grafana:11.1.4
+    image: grafana/grafana:10.0.0
     container_name: urlshortener-grafana
     ports:
       - "3000:3000"
-    volumes:
-      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
-      - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
-    depends_on:
-      prometheus:
-        condition: service_started
-    networks:
-      - urlshortener-net
-    restart: unless-stopped
-
-  clickhouse-dashboard:
-    image: spoonest/clickhouse-tabix-web-client:latest
-    container_name: urlshortener-clickhouse-dashboard
     environment:
-      CH_HOST: clickhouse
-      CH_PORT: 8123
-    ports:
-      - "8088:80"
-    depends_on:
-      clickhouse:
-        condition: service_started
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: false
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./docker/grafana/provisioning:/etc/grafana/provisioning
+      - ./docker/grafana/dashboards:/var/lib/grafana/dashboards
     networks:
       - urlshortener-net
     restart: unless-stopped
 
+  # Logs
   dozzle:
     image: amir20/dozzle:latest
     container_name: urlshortener-dozzle
     ports:
-      - "9999:8080"
+      - "8888:8080"
+    environment:
+      DOZZLE_LEVEL: info
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
     networks:
       - urlshortener-net
     restart: unless-stopped
 
-  test:
-    build:
-      context: .
-      dockerfile: docker/api/Dockerfile
-    container_name: urlshortener-test
-    command: pytest tests/ -v --tb=short
-    env_file:
-      - .env.test
-    depends_on:
-      db-test:
-        condition: service_healthy
-      redis-test:
-        condition: service_healthy
-    networks:
-      - urlshortener-net
-    profiles:
-      - test
-
-  db-test:
-    image: postgres:16-alpine
-    container_name: urlshortener-db-test
-    environment:
-      POSTGRES_USER: test
-      POSTGRES_PASSWORD: test
-      POSTGRES_DB: urlshortener_test
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U test"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-    networks:
-      - urlshortener-net
-    profiles:
-      - test
-
-  redis-test:
-    image: redis:7-alpine
-    container_name: urlshortener-redis-test
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-    networks:
-      - urlshortener-net
-    profiles:
-      - test
-
 volumes:
   postgres_data:
-  redis_data:
+  redis_master_data:
+  redis_replica1_data:
+  redis_replica2_data:
+  redis_sentinel1_data:
+  redis_sentinel2_data:
+  redis_sentinel3_data:
   clickhouse_data:
+  prometheus_data:
+  grafana_data:
 
 networks:
   urlshortener-net:
