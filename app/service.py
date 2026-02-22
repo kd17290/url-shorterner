@@ -136,7 +136,7 @@ import json
 import httpx
 import redis.asyncio as redis
 from nanoid import generate
-from prometheus_client import Counter
+from prometheus_client import Counter, Gauge
 from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -193,7 +193,7 @@ def _update_cache_hit_rate() -> None:
     hits = APP_EDGE_CACHE_HITS_TOTAL._value._value
     misses = APP_EDGE_CACHE_MISSES_TOTAL._value._value
     total = hits + misses
-    
+
     if total > 0:
         hit_rate = (hits / total) * 100
         APP_EDGE_CACHE_HIT_RATE.set(hit_rate)
@@ -335,7 +335,7 @@ async def get_url_by_code(
         _update_cache_hit_rate()
         data = json.loads(cached)
         return URL(**data)
-    
+
     APP_EDGE_CACHE_MISSES_TOTAL.inc()
     _update_cache_hit_rate()
 
