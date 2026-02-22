@@ -655,7 +655,7 @@ class URLShorteningService:
             url = URL(short_code=short_code, original_url=str(request.url))
             self._db.add(url)
             await self._db.commit()
-            # DATABASE_WRITES_TOTAL.inc()
+            DATABASE_WRITES_TOTAL.inc()
             self._metrics.database_writes += 1
             await self._db.refresh(url)
             return url
