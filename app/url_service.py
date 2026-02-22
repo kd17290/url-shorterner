@@ -190,8 +190,7 @@ from dataclasses import dataclass
 import httpx
 import redis.asyncio as redis
 from nanoid import generate
-# Temporarily disabled prometheus metrics to fix tests
-# from prometheus_client import Counter, Gauge, Histogram
+from prometheus_client import Counter, Gauge, Histogram
 from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -216,76 +215,76 @@ _id_allocation_end: int = -1
 
 
 # ============================================================================
-# TEMPORARILY DISABLED PROMETHEUS METRICS
+# PROMETHEUS METRICS
 # ============================================================================
-# 
+
 # Request metrics
-# URL_CREATION_REQUESTS_TOTAL = Counter(
-#     "url_shortener_creation_requests_total",
-#     "Total URL creation requests",
-#     ["status"]
-# )
-# URL_LOOKUP_REQUESTS_TOTAL = Counter(
-#     "url_shortener_lookup_requests_total", 
-#     "Total URL lookup requests",
-#     ["status", "cache_hit"]
-# )
-# URL_REDIRECT_REQUESTS_TOTAL = Counter(
-#     "url_shortener_redirect_requests_total",
-#     "Total URL redirect requests"
-# )
-# 
-# # Performance metrics
-# URL_CREATION_DURATION = Histogram(
-#     "url_shortener_creation_duration_seconds",
-#     "Time taken to create short URLs",
-#     buckets=[0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0]
-# )
-# URL_LOOKUP_DURATION = Histogram(
-#     "url_shortener_lookup_duration_seconds",
-#     "Time taken to lookup URLs",
-#     buckets=[0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25]
-# )
-# 
-# # Cache metrics
-# CACHE_HITS_TOTAL = Counter(
-#     "url_shortener_cache_hits_total",
-#     "Total cache hits for URL lookups"
-# )
-# CACHE_MISSES_TOTAL = Counter(
-#     "url_shortener_cache_misses_total", 
-#     "Total cache misses for URL lookups"
-# )
-# CACHE_HIT_RATE = Gauge(
-#     "url_shortener_cache_hit_rate",
-#     "Cache hit rate percentage"
-# )
-# 
-# # Database metrics
-# DATABASE_READS_TOTAL = Counter(
-#     "url_shortener_database_reads_total",
-#     "Total database read operations"
-# )
-# DATABASE_WRITES_TOTAL = Counter(
-#     "url_shortener_database_writes_total",
-#     "Total database write operations"
-# )
-# 
-# # Redis metrics
-# REDIS_OPERATIONS_TOTAL = Counter(
-#     "url_shortener_redis_operations_total",
-#     "Total Redis operations"
-# )
-# 
-# # Event streaming metrics
-# KAFKA_EVENTS_PUBLISHED_TOTAL = Counter(
-#     "url_shortener_kafka_events_published_total",
-#     "Total Kafka events published successfully"
-# )
-# KAFKA_EVENTS_FAILED_TOTAL = Counter(
-#     "url_shortener_kafka_events_failed_total",
-#     "Total Kafka events that failed to publish"
-# )
+URL_CREATION_REQUESTS_TOTAL = Counter(
+    "url_shortener_creation_requests_total",
+    "Total URL creation requests",
+    ["status"]
+)
+URL_LOOKUP_REQUESTS_TOTAL = Counter(
+    "url_shortener_lookup_requests_total", 
+    "Total URL lookup requests",
+    ["status", "cache_hit"]
+)
+URL_REDIRECT_REQUESTS_TOTAL = Counter(
+    "url_shortener_redirect_requests_total",
+    "Total URL redirect requests"
+)
+
+# Performance metrics
+URL_CREATION_DURATION = Histogram(
+    "url_shortener_creation_duration_seconds",
+    "Time taken to create short URLs",
+    buckets=[0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0]
+)
+URL_LOOKUP_DURATION = Histogram(
+    "url_shortener_lookup_duration_seconds",
+    "Time taken to lookup URLs",
+    buckets=[0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25]
+)
+
+# Cache metrics
+CACHE_HITS_TOTAL = Counter(
+    "url_shortener_cache_hits_total",
+    "Total cache hits for URL lookups"
+)
+CACHE_MISSES_TOTAL = Counter(
+    "url_shortener_cache_misses_total", 
+    "Total cache misses for URL lookups"
+)
+CACHE_HIT_RATE = Gauge(
+    "url_shortener_cache_hit_rate",
+    "Cache hit rate percentage"
+)
+
+# Database metrics
+DATABASE_READS_TOTAL = Counter(
+    "url_shortener_database_reads_total",
+    "Total database read operations"
+)
+DATABASE_WRITES_TOTAL = Counter(
+    "url_shortener_database_writes_total",
+    "Total database write operations"
+)
+
+# Redis metrics
+REDIS_OPERATIONS_TOTAL = Counter(
+    "url_shortener_redis_operations_total",
+    "Total Redis operations"
+)
+
+# Event streaming metrics
+KAFKA_EVENTS_PUBLISHED_TOTAL = Counter(
+    "url_shortener_kafka_events_published_total",
+    "Total Kafka events published successfully"
+)
+KAFKA_EVENTS_FAILED_TOTAL = Counter(
+    "url_shortener_kafka_events_failed_total",
+    "Total Kafka events that failed to publish"
+)
 
 
 # ============================================================================
@@ -417,10 +416,10 @@ class URLShorteningService:
             # Cache the result for fast lookups
             await self._cache_url_object(url)
             
-            # Record success metrics (temporarily disabled)
+            # Record success metrics
             duration = time.perf_counter() - start_time
-            # URL_CREATION_DURATION.observe(duration)
-            # URL_CREATION_REQUESTS_TOTAL.labels(status=RequestStatus.SUCCESS).inc()
+            URL_CREATION_DURATION.observe(duration)
+            URL_CREATION_REQUESTS_TOTAL.labels(status=RequestStatus.SUCCESS).inc()
             self._metrics.operation_count += 1
             self._metrics.total_duration += duration
             self._metrics.database_writes += 1
@@ -430,15 +429,15 @@ class URLShorteningService:
             
         except ValueError as exc:
             duration = time.perf_counter() - start_time
-            # URL_CREATION_DURATION.observe(duration)
-            # URL_CREATION_REQUESTS_TOTAL.labels(status=RequestStatus.VALIDATION_ERROR).inc()
+            URL_CREATION_DURATION.observe(duration)
+            URL_CREATION_REQUESTS_TOTAL.labels(status=RequestStatus.VALIDATION_ERROR).inc()
             self._logger.warning(f"URL creation failed: {exc}")
             raise
             
         except Exception as exc:
             duration = time.perf_counter() - start_time
-            # URL_CREATION_DURATION.observe(duration)
-            # URL_CREATION_REQUESTS_TOTAL.labels(status=RequestStatus.ERROR).inc()
+            URL_CREATION_DURATION.observe(duration)
+            URL_CREATION_REQUESTS_TOTAL.labels(status=RequestStatus.ERROR).inc()
             self._logger.error(f"URL creation error: {exc}")
             raise
     
@@ -481,16 +480,16 @@ class URLShorteningService:
             cached_url = await self._lookup_from_cache(short_code)
             if cached_url:
                 duration = time.perf_counter() - start_time
-                # URL_LOOKUP_DURATION.observe(duration)
-                # URL_LOOKUP_REQUESTS_TOTAL.labels(status=RequestStatus.SUCCESS, cache_hit=CacheStatus.HIT).inc()
-                # CACHE_HITS_TOTAL.inc()
+                URL_LOOKUP_DURATION.observe(duration)
+                URL_LOOKUP_REQUESTS_TOTAL.labels(status=RequestStatus.SUCCESS, cache_hit=CacheStatus.HIT).inc()
+                CACHE_HITS_TOTAL.inc()
                 self._metrics.cache_hits += 1
                 self._update_cache_hit_rate()
                 self._logger.debug(f"Cache hit for {short_code} in {duration:.3f}s")
                 return cached_url
             
             # Cache miss - update metrics and proceed to database
-            # CACHE_MISSES_TOTAL.inc()
+            CACHE_MISSES_TOTAL.inc()
             self._metrics.cache_misses += 1
             self._update_cache_hit_rate()
             
@@ -518,8 +517,8 @@ class URLShorteningService:
                     
         except Exception as exc:
             duration = time.perf_counter() - start_time
-            # URL_LOOKUP_DURATION.observe(duration)
-            # URL_LOOKUP_REQUESTS_TOTAL.labels(status=RequestStatus.ERROR, cache_hit=CacheStatus.MISS).inc()
+            URL_LOOKUP_DURATION.observe(duration)
+            URL_LOOKUP_REQUESTS_TOTAL.labels(status=RequestStatus.ERROR, cache_hit=CacheStatus.MISS).inc()
             self._logger.error(f"URL lookup error for {short_code}: {exc}")
             raise
     
@@ -591,7 +590,7 @@ class URLShorteningService:
             
             # Record metrics
             duration = time.perf_counter() - start_time
-            # URL_REDIRECT_REQUESTS_TOTAL.inc()
+            URL_REDIRECT_REQUESTS_TOTAL.inc()
             self._logger.debug(f"Click tracked for {url.short_code} in {duration:.3f}s")
             
         except Exception as exc:
@@ -619,7 +618,7 @@ class URLShorteningService:
             existing = await self._db.execute(
                 select(URL).where(URL.short_code == request.custom_code)
             )
-            # DATABASE_READS_TOTAL.inc()
+            DATABASE_READS_TOTAL.inc()
             self._metrics.database_reads += 1
             
             if existing.scalar_one_or_none():
@@ -655,7 +654,7 @@ class URLShorteningService:
             url = URL(short_code=short_code, original_url=str(request.url))
             self._db.add(url)
             await self._db.commit()
-            # DATABASE_WRITES_TOTAL.inc()
+            DATABASE_WRITES_TOTAL.inc()
             self._metrics.database_writes += 1
             await self._db.refresh(url)
             return url
@@ -676,7 +675,7 @@ class URLShorteningService:
         """
         cache_key = f"url:{short_code}"
         cached_data = await self._cache_read.get(cache_key)
-        # REDIS_OPERATIONS_TOTAL.inc()
+        REDIS_OPERATIONS_TOTAL.inc()
         
         if cached_data:
             try:
@@ -704,7 +703,7 @@ class URLShorteningService:
             Optional[URL]: URL from database if found
         """
         result = await self._db.execute(select(URL).where(URL.short_code == short_code))
-        # DATABASE_READS_TOTAL.inc()
+        DATABASE_READS_TOTAL.inc()
         self._metrics.database_reads += 1
         return result.scalar_one_or_none()
     
@@ -724,7 +723,7 @@ class URLShorteningService:
             DEFAULT_CACHE_TTL_SECONDS,
             payload.model_dump_json()
         )
-        # REDIS_OPERATIONS_TOTAL.inc()
+        REDIS_OPERATIONS_TOTAL.inc()
     
     async def _increment_click_buffer(self, short_code: str) -> None:
         """Increment click buffer in Redis (atomic operation).
@@ -734,7 +733,7 @@ class URLShorteningService:
         """
         buffer_key = f"{self._settings.CLICK_BUFFER_KEY_PREFIX}:{short_code}"
         buffered_count = await self._cache_write.incr(buffer_key)
-        # REDIS_OPERATIONS_TOTAL.inc()
+        REDIS_OPERATIONS_TOTAL.inc()
         
         # Set TTL on first increment to prevent memory leaks
         if buffered_count == 1:
@@ -742,7 +741,7 @@ class URLShorteningService:
                 buffer_key, 
                 self._settings.CLICK_BUFFER_TTL_SECONDS
             )
-            # REDIS_OPERATIONS_TOTAL.inc()
+            REDIS_OPERATIONS_TOTAL.inc()
     
     async def _publish_click_event(self, short_code: str) -> None:
         """Publish click event to Kafka with fallback handling.
@@ -753,7 +752,7 @@ class URLShorteningService:
         try:
             published = await publish_click_event(short_code, 1)
             if published:
-                # KAFKA_EVENTS_PUBLISHED_TOTAL.inc()
+                KAFKA_EVENTS_PUBLISHED_TOTAL.inc()
                 pass
             else:
                 await self._handle_kafka_failure(short_code)
@@ -767,7 +766,7 @@ class URLShorteningService:
         Args:
             short_code: Short code that was clicked
         """
-        # KAFKA_EVENTS_FAILED_TOTAL.inc()
+        KAFKA_EVENTS_FAILED_TOTAL.inc()
         
         # Fallback to Redis stream
         try:
@@ -779,7 +778,7 @@ class URLShorteningService:
                     "timestamp": str(time.time()),
                 },
             )
-            # REDIS_OPERATIONS_TOTAL.inc()
+            REDIS_OPERATIONS_TOTAL.inc()
             self._logger.debug(f"Click event stored in Redis stream for {short_code}")
         except Exception as exc:
             self._logger.error(f"Redis stream fallback failed for {short_code}: {exc}")
@@ -795,7 +794,7 @@ class URLShorteningService:
         """
         buffer_key = f"{self._settings.CLICK_BUFFER_KEY_PREFIX}:{short_code}"
         value = await self._cache_write.get(buffer_key)
-        # REDIS_OPERATIONS_TOTAL.inc()
+        REDIS_OPERATIONS_TOTAL.inc()
         return int(value) if value else 0
     
     async def _acquire_distributed_lock(self, cache: redis.Redis, short_code: str) -> bool:
@@ -832,12 +831,16 @@ class URLShorteningService:
             short_code: Short code to unlock
         """
         await cache.delete(f"lock:url:{short_code}")
-        # REDIS_OPERATIONS_TOTAL.inc()
+        REDIS_OPERATIONS_TOTAL.inc()
     
     def _update_cache_hit_rate(self) -> None:
         """Update cache hit rate gauge based on current metrics."""
-        # Temporarily disabled due to prometheus metrics being commented out
-        pass
+        hits = CACHE_HITS_TOTAL._value._value
+        misses = CACHE_MISSES_TOTAL._value._value
+        total = hits + misses
+        
+        if total > 0:
+            CACHE_HIT_RATE.set((hits / total) * 100)
 
 
 # ============================================================================

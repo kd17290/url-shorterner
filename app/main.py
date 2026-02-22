@@ -88,6 +88,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from prometheus_fastapi_instrumentator import Instrumentator
 
 from app.config import get_settings
 from app.database import close_db, init_db
@@ -129,11 +130,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Temporarily disabled Prometheus instrumentation to fix tests
-# Instrumentator(
-#     should_group_status_codes=True,
-#     should_ignore_untemplated=False,
-#     should_respect_env_var=False,
-# ).instrument(app).expose(app)
+Instrumentator(
+    should_group_status_codes=True,
+    should_ignore_untemplated=False,
+    should_respect_env_var=False,
+).instrument(app).expose(app)
 
 app.include_router(router)
