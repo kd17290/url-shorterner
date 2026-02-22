@@ -69,14 +69,14 @@ How to Use
 **Step 2 — Access endpoints**::
     # Health check
     GET http://localhost:8000/health
-    
+
     # Shorten URL
     POST http://localhost:8000/api/shorten
     {"url": "https://example.com"}
-    
+
     # Redirect
     GET http://localhost:8000/abc123
-    
+
     # Stats
     GET http://localhost:8000/api/stats/abc123
 
@@ -112,10 +112,7 @@ router = APIRouter()
 
 
 @router.get("/health", response_model=HealthResponse, tags=["health"])
-async def health_check(
-    ctx = Depends(get_request_context),
-    manager = Depends(get_service_manager)
-) -> HealthResponse:
+async def health_check(ctx=Depends(get_request_context), manager=Depends(get_service_manager)) -> HealthResponse:
     ctx.logger.info("Health check requested")
     db_status = HealthStatus.HEALTHY
     cache_status = HealthStatus.HEALTHY
@@ -139,7 +136,7 @@ async def health_check(
         if db_status is HealthStatus.HEALTHY and cache_status is HealthStatus.HEALTHY
         else HealthStatus.UNHEALTHY
     )
-    
+
     ctx.logger.info(f"Health check completed: {status.value}")
     return HealthResponse(status=status, database=db_status, cache=cache_status)
 
@@ -147,22 +144,18 @@ async def health_check(
 @router.post("/api/shorten", response_model=URLResponse, status_code=201, tags=["urls"])
 async def shorten_url(
     payload: URLCreate,
-    ctx = Depends(get_request_context),
+    ctx=Depends(get_request_context),
     service: URLShorteningService = Depends(get_url_service),
 ) -> URLResponse:
     # Add context tags for better observability
     ctx.add_tag("url_creation")
     ctx.add_tag("api_endpoint")
-    
+
     ctx.logger.info(
         f"URL shortening requested: {payload.url}",
-        extra={
-            "operation": "create_short_url",
-            "target_url": payload.url,
-            "custom_code": payload.custom_code
-        }
+        extra={"operation": "create_short_url", "target_url": payload.url, "custom_code": payload.custom_code},
     )
-    
+
     try:
         url = await service.create_short_url(payload)
         ctx.logger.info(
@@ -171,17 +164,13 @@ async def shorten_url(
                 "operation": "create_short_url",
                 "short_code": url.short_code,
                 "url_id": url.id,
-                "duration_ms": ctx.get_duration()
-            }
+                "duration_ms": ctx.get_duration(),
+            },
         )
     except ValueError as exc:
         ctx.logger.warning(
             f"URL shortening failed: {exc}",
-            extra={
-                "operation": "create_short_url",
-                "error": str(exc),
-                "duration_ms": ctx.get_duration()
-            }
+            extra={"operation": "create_short_url", "error": str(exc), "duration_ms": ctx.get_duration()},
         )
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
@@ -199,7 +188,7 @@ async def shorten_url(
 @router.get("/api/stats/{short_code}", response_model=URLStats, tags=["urls"])
 async def get_stats(
     short_code: str,
-    ctx = Depends(get_request_context),
+    ctx=Depends(get_request_context),
     service: URLShorteningService = Depends(get_url_service),
 ) -> URLStats:
     ctx.logger.info(f"Stats requested for short code: {short_code}")
@@ -222,23 +211,23 @@ async def get_stats(
 @router.get("/{short_code}", tags=["redirect"])
 async def redirect_to_url(
     short_code: str,
-    ctx = Depends(get_request_context),
+    ctx=Depends(get_request_context),
     service: URLShorteningService = Depends(get_url_service),
 ) -> RedirectResponse:
     # Add context tags for better observability
     ctx.add_tag("redirect")
     ctx.add_tag("lookup")
-    
+
     ctx.logger.info(
         f"Redirect requested for short code: {short_code}",
         extra={
             "operation": "redirect",
             "short_code": short_code,
             "user_agent": ctx.user_agent,
-            "client_ip": ctx.client_ip
-        }
+            "client_ip": ctx.client_ip,
+        },
     )
-    
+
     # cache_read → replica (read-only GET lookup, hot path)
     # cache_write → primary (INCR click buffer, XADD fallback stream)
     url = await service.lookup_url_by_code(short_code)
@@ -249,13 +238,13 @@ async def redirect_to_url(
                 "operation": "redirect",
                 "short_code": short_code,
                 "error": "not_found",
-                "duration_ms": ctx.get_duration()
-            }
+                "duration_ms": ctx.get_duration(),
+            },
         )
         raise HTTPException(status_code=404, detail="Short URL not found")
 
     await service.track_url_click(url)
-    
+
     ctx.logger.info(
         f"Redirect successful: {short_code} -> {url.original_url}",
         extra={
@@ -263,8 +252,8 @@ async def redirect_to_url(
             "short_code": short_code,
             "target_url": url.original_url,
             "url_id": url.id,
-            "duration_ms": ctx.get_duration()
-        }
+            "duration_ms": ctx.get_duration(),
+        },
     )
-    
+
     return RedirectResponse(url=url.original_url, status_code=307)
