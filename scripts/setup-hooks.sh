@@ -5,7 +5,7 @@
 set -euo pipefail
 
 echo "=== Installing pre-commit ==="
-pip install pre-commit
+python3 -m pip install pre-commit
 
 echo "=== Installing git hooks ==="
 pre-commit install

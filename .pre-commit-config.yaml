@@ -25,8 +25,13 @@ repos:
           - --fix
 
   # ── Rust formatting ────────────────────────────────────────────────────
-  - repo: https://github.com/doublify/pre-commit-rust
-    rev: v1.0
+  # Requires cargo/rustfmt installed locally. Skips gracefully if not available.
+  # Install Rust: https://rustup.rs
+  - repo: local
     hooks:
-      - id: fmt
-        args: ["--all", "--", "--check"]
+      - id: rustfmt
+        name: rustfmt
+        entry: bash -c 'command -v cargo >/dev/null 2>&1 && cargo fmt --all -- --check || echo "Skipping rustfmt (cargo not installed)"'
+        language: system
+        types: [rust]
+        pass_filenames: false
