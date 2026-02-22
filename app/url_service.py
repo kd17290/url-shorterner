@@ -721,10 +721,12 @@ class URLShorteningService:
         payload = CachedURLPayload.model_validate(url)
         cache_key = f"url:{url.short_code}"
         
+        # Set the URL payload in cache with expiration using SETEX atomic operation
+        # SETEX is atomic version of SET + EXPIRE, ensuring the key always has TTL
         await target_cache.setex(
-            cache_key,
-            DEFAULT_CACHE_TTL_SECONDS,
-            payload.model_dump_json()
+            name=cache_key,
+            time=DEFAULT_CACHE_TTL_SECONDS,
+            value=payload.model_dump_json()
         )
         REDIS_OPERATIONS_TOTAL.inc()
     
