@@ -22,6 +22,7 @@ pub enum HealthStatus {
 }
 
 impl HealthStatus {
+    #[allow(dead_code, clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Self {
         match s {
             "healthy" => Self::Healthy,

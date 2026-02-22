@@ -7,12 +7,14 @@ use serde::{Deserialize, Serialize};
 /// Health check status values.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
+#[allow(dead_code)]
 pub enum HealthStatus {
     Healthy,
     Unhealthy,
 }
 
 impl HealthStatus {
+    #[allow(dead_code)]
     /// Safely parse from string, falling back to Unhealthy for unknown values.
     pub fn from_str(s: &str) -> Self {
         match s {
@@ -25,14 +27,16 @@ impl HealthStatus {
 /// Service operational status values.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
+#[allow(dead_code)]
 pub enum ServiceStatus {
     Pending,
     Running,
     Completed,
-    Failed,
+    Failed
 }
 
 impl ServiceStatus {
+    #[allow(dead_code)]
     /// Safely parse from string, falling back to Failed for unknown values.
     pub fn from_str(s: &str) -> Self {
         match s {
