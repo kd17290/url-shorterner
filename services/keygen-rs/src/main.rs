@@ -107,11 +107,12 @@ async fn health(State(state): State<Arc<AppState>>) -> Json<HealthResponse> {
             Err(_) => HealthStatus::Unhealthy,
         }
     };
-    let overall_status = if primary_status == HealthStatus::Healthy || secondary_status == HealthStatus::Healthy {
-        HealthStatus::Healthy
-    } else {
-        HealthStatus::Unhealthy
-    };
+    let overall_status =
+        if primary_status == HealthStatus::Healthy || secondary_status == HealthStatus::Healthy {
+            HealthStatus::Healthy
+        } else {
+            HealthStatus::Unhealthy
+        };
     Json(HealthResponse {
         status: overall_status,
         primary: primary_status,

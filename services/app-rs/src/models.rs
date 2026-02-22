@@ -1,7 +1,8 @@
 use chrono::{DateTime, Utc};
-use crate::enums::HealthStatus;
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
+
+use crate::enums::HealthStatus;
 
 /// Database row — mirrors the Python URL SQLAlchemy model.
 #[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
