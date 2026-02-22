@@ -183,8 +183,8 @@ async def track_performance():
 
 import logging
 import time
-from typing import Optional, TYPE_CHECKING
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 import httpx
 import redis.asyncio as redis
@@ -192,7 +192,7 @@ from prometheus_client import Counter, Gauge, Histogram
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
-from app.enums import RequestStatus, CacheStatus
+from app.enums import CacheStatus, RequestStatus
 from app.kafka import publish_click_event
 from app.models import URL
 from app.schemas import CachedURLPayload, URLCreate
@@ -203,7 +203,6 @@ if TYPE_CHECKING:
 
 # Import get_settings for use in functions
 from app.config import get_settings
-
 
 # ============================================================================
 # CONSTANTS AND CONFIGURATION
@@ -423,9 +422,7 @@ class URLShorteningService:
             self._logger.error(f"URL creation error: {exc}")
             raise
 
-    async def lookup_url_by_code(
-        self, short_code: str, use_cache_writer: Optional[redis.Redis] = None
-    ) -> Optional[URL]:
+    async def lookup_url_by_code(self, short_code: str, use_cache_writer: redis.Redis | None = None) -> URL | None:
         """Lookup URL by short code with intelligent caching strategy.
 
         This method implements a cache-first lookup strategy with the following flow:
@@ -506,7 +503,7 @@ class URLShorteningService:
             self._logger.error(f"URL lookup error for {short_code}: {exc}")
             raise
 
-    async def get_url_statistics(self, short_code: str) -> Optional[URL]:
+    async def get_url_statistics(self, short_code: str) -> URL | None:
         """Get comprehensive URL statistics including buffered clicks.
 
         This method provides complete URL statistics by combining:
@@ -646,7 +643,7 @@ class URLShorteningService:
             self._logger.error(f"Database collision for code: {short_code}")
             raise ValueError(f"Short code '{short_code}' collision detected") from exc
 
-    async def _lookup_from_cache(self, short_code: str) -> Optional[URL]:
+    async def _lookup_from_cache(self, short_code: str) -> URL | None:
         """Lookup URL from Redis cache.
 
         Args:
@@ -675,7 +672,7 @@ class URLShorteningService:
 
         return None
 
-    async def _lookup_from_database(self, short_code: str) -> Optional[URL]:
+    async def _lookup_from_database(self, short_code: str) -> URL | None:
         """Lookup URL from PostgreSQL database.
 
         Args:
@@ -689,7 +686,7 @@ class URLShorteningService:
         self._metrics.database_reads += 1
         return result.scalar_one_or_none()
 
-    async def _cache_url_object(self, url: URL, cache: Optional[redis.Redis] = None) -> None:
+    async def _cache_url_object(self, url: URL, cache: redis.Redis | None = None) -> None:
         """Cache URL object in Redis with TTL.
 
         Args:

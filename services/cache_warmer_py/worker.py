@@ -9,7 +9,7 @@ import logging
 import random
 
 import redis.asyncio as redis
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from app.config import get_settings
 from app.database import async_session
@@ -104,7 +104,7 @@ async def _warm_random_urls(cache: redis.Redis, count: int = 2000) -> None:
     """Warm cache with random URLs to increase coverage."""
     async with async_session() as session:
         # Get random URLs for better coverage
-        result = await session.execute(select(URL).order_by(random.random()).limit(count))
+        result = await session.execute(select(URL).order_by(func.random()).limit(count))
         random_urls = result.scalars().all()
 
         pipe = cache.pipeline(transaction=False)

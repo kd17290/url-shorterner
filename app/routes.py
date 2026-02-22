@@ -101,7 +101,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import RedirectResponse
 from sqlalchemy import text
 
-from app.dependencies import get_request_context, get_url_service, get_service_manager
+from app.dependencies import get_request_context, get_service_manager, get_url_service
 from app.enums import HealthStatus
 from app.schemas import HealthResponse, URLCreate, URLResponse, URLStats
 from app.url_service import URLShorteningService

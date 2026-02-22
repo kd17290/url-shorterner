@@ -16,13 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import Settings, get_settings
 from app.models import URL
 from app.schemas import URLCreate
-from app.url_service import (
-    URLShorteningService,
-    PerformanceMetrics,
-    BASE62_ALPHABET,
-    _base62_encode,
-)
-
+from app.url_service import BASE62_ALPHABET, PerformanceMetrics, URLShorteningService, _base62_encode
 
 # ============================================================================
 # TEST FIXTURES AND UTILITIES

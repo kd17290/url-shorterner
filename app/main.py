@@ -97,7 +97,6 @@ from app.kafka import close_kafka, init_kafka
 from app.redis import close_redis
 from app.routes import router
 
-
 settings = get_settings()
 
 

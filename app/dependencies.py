@@ -19,7 +19,6 @@ from app.config import get_settings
 from app.database import get_db
 from app.url_service import URLShorteningService
 
-
 # ============================================================================
 # SINGLETON SERVICE MANAGER
 # ============================================================================
@@ -111,11 +110,11 @@ class RequestContext:
     database: AsyncSession
     service_manager: ServiceManager
     request_id: str = field(default_factory=lambda: str(uuid.uuid4()))
-    trace_id: Optional[str] = None
-    user_agent: Optional[str] = None
-    client_ip: Optional[str] = None
+    trace_id: str | None = None
+    user_agent: str | None = None
+    client_ip: str | None = None
     start_time: float = field(default_factory=lambda: time.time())
-    parent_request_id: Optional[str] = None
+    parent_request_id: str | None = None
     tags: list[str] = field(default_factory=list)
 
     @property
