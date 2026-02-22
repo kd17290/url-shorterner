@@ -74,13 +74,16 @@ def mock_logger() -> MagicMock:
 @pytest.fixture
 def url_service(mock_database, mock_redis, mock_logger, settings) -> URLShorteningService:
     """Create URL service with mocked dependencies."""
-    return URLShorteningService(
-        database=mock_database,
-        cache_writer=mock_redis,
-        cache_reader=mock_redis,
-        logger=mock_logger,
-        settings=settings
-    )
+    # Create a mock RequestContext
+    from unittest.mock import Mock
+    ctx = Mock()
+    ctx.database = mock_database
+    ctx.cache_writer = mock_redis
+    ctx.cache_reader = mock_redis
+    ctx.logger = mock_logger
+    ctx.settings = settings
+    
+    return URLShorteningService(ctx)
 
 
 @pytest.fixture
@@ -92,13 +95,14 @@ def sample_url_request() -> URLCreate:
 @pytest.fixture
 def sample_url() -> URL:
     """Sample URL model."""
+    from datetime import datetime
     return URL(
         id=1,
         short_code="abc123",
         original_url="https://example.com",
         clicks=0,
-        created_at="2024-01-01T00:00:00Z",
-        updated_at="2024-01-01T00:00:00Z",
+        created_at=datetime(2024, 1, 1, 0, 0, 0),
+        updated_at=datetime(2024, 1, 1, 0, 0, 0),
     )
 
 
@@ -151,6 +155,15 @@ class TestURLShorteningService:
         url_service._db.execute.return_value.scalar_one_or_none.return_value = None
         url_service._db.commit.return_value = None
         url_service._db.refresh.return_value = None
+        
+        # Mock the database to return the sample_url after refresh
+        def mock_refresh(obj):
+            if hasattr(obj, 'id'):
+                obj.id = sample_url.id
+                obj.created_at = sample_url.created_at
+                obj.updated_at = sample_url.updated_at
+        
+        url_service._db.refresh.side_effect = mock_refresh
         
         # Mock ID allocation
         with patch('app.url_service._allocate_short_code_with_cache', return_value="abc123"):

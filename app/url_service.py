@@ -418,8 +418,11 @@ class URLShorteningService:
             
             # Record success metrics
             duration = time.perf_counter() - start_time
+            # Record metrics in both Prometheus and internal tracking
             URL_CREATION_DURATION.observe(duration)
             URL_CREATION_REQUESTS_TOTAL.labels(status=RequestStatus.SUCCESS).inc()
+            
+            # Update internal metrics (single source of truth for performance tracking)
             self._metrics.operation_count += 1
             self._metrics.total_duration += duration
             self._metrics.database_writes += 1

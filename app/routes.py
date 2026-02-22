@@ -128,7 +128,7 @@ async def health_check(
         db_status = HealthStatus.UNHEALTHY
 
     try:
-        await ctx.cache_write.ping()
+        await ctx.cache_writer.ping()
         ctx.logger.debug("Cache health check passed")
     except Exception as e:
         ctx.logger.error(f"Cache health check failed: {e}")
